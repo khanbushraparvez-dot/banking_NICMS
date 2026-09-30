@@ -8,3 +8,7 @@
 6. Deploy.
 
 For the frontend/demo checkpoint, leave Supabase variables empty if you want demo mode. Add the real Supabase variables only after the database checkpoint has been rebuilt.
+
+
+### Login note
+The demo login fallback has been removed. Production login uses Supabase email/password. Create the two Vendor Admin Auth users during CP2 and assign their profiles the `Vendor Admin` role.

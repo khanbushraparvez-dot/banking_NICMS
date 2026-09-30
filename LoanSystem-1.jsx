@@ -433,6 +433,7 @@ function downloadCSV(rows) {
 
 // ─── AUTH PAGES ───────────────────────────────────────────────────────────────
 const AUTH_ROLES = ["Banker", "Vendor Admin", "Vendor Employee"];
+const VENDOR_ADMIN_EMAILS = ["founder@arskeil.in", "khanbushraparvez@gmail.com"];
 
 // Bank list used by the registration/login flow. Bank selection is retained for
 // case processing so the document extractor can apply the correct bank pattern.
@@ -603,17 +604,6 @@ function LoginPage({ onLogin }) {
     if (!password) { setError("Please enter your password."); return; }
     setLoading(true);
     try {
-      // Demo-only fallback for StackBlitz testing. Production uses Supabase email/password.
-      if (DEMO_MODE) {
-        const demo = {
-          bushra: { id:"demo-admin", email:"founder@arskeil.in", name:"Bushra", username:"bushra", role:"Vendor Admin", approved:true, active:true, emailVerified:true, branch:"All Branches", bankCode:"ALL", permissions:{} },
-          maria: { id:"demo-employee", email:"maria@arskeil.in", name:"Maria", username:"maria", role:"Vendor Employee", approved:true, active:true, emailVerified:true, branch:"Mumbai", bankCode:"MRHFL", permissions:{} },
-          jubbu: { id:"demo-banker", email:"jubbu@mahindrafinance.com", name:"Jubbu", username:"jubbu", role:"Banker", approved:true, active:true, emailVerified:true, branch:"Bhayandar", bankCode:"MRHFL", permissions:{} },
-        };
-        const key = e.includes("@") ? e.split("@")[0] : e; const d = demo[key];
-        if (!d || password !== key) throw new Error("Demo login: use bushra/Bushra, maria/maria or jubbu/jubbu.");
-        await DB.hydrateRemote(); await finishLogin({id:d.id,email:d.email},d); return;
-      }
       if (!/^\S+@\S+\.\S+$/.test(e)) { setError("Please enter your valid official email address."); return; }
       if (!supabase) throw new Error("Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.");
       const { data, error: authError } = await supabase.auth.signInWithPassword({ email:e, password });
@@ -625,7 +615,7 @@ function LoginPage({ onLogin }) {
       if (profile.active === false) { await supabase.auth.signOut(); throw new Error("Your account has been deactivated. Please contact the Vendor Admin."); }
       if (profile.approved !== true) { await supabase.auth.signOut(); throw new Error("Your account is waiting for Vendor Admin approval."); }
       if (profile.email_verified === false) { await supabase.auth.signOut(); throw new Error("Your official email is not verified."); }
-      if (profile.role === "Vendor Admin" && !["founder@arskeil.in","khanbushraparvez@gmail.com"].includes(e)) { await supabase.auth.signOut(); throw new Error("This email is not authorized for Vendor Admin login."); }
+      if (profile.role === "Vendor Admin" && !VENDOR_ADMIN_EMAILS.includes(e)) { await supabase.auth.signOut(); throw new Error("This email is not authorized for Vendor Admin login."); }
       await DB.hydrateRemote(); await finishLogin(data.user,profile);
     } catch (err) { setError(err.message || "Unable to login."); try { if(supabase) await supabase.auth.signOut(); } catch {} }
     finally { setLoading(false); }

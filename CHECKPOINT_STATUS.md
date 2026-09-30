@@ -29,3 +29,9 @@ Optional for CP1 demo mode:
 - `VITE_SUPABASE_ANON_KEY`
 
 Do not commit `.env` files or API secrets.
+
+
+## Login policy update
+- Removed demo/StackBlitz login accounts (including Maria/Jubbu/Bushra demo credentials).
+- Vendor Admin login is restricted to the two approved official email addresses configured in the frontend.
+- Passwords are NOT stored in the frontend; the two Admin accounts must be created in Supabase Auth during CP2.
