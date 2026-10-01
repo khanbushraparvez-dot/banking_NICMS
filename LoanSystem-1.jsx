@@ -856,6 +856,7 @@ function Dashboard({ setPage, session }) {
   const [branchFilter,setBranchFilter]=useState("");
   const [tick, setTick] = useState(0);
   useEffect(() => { const id = setInterval(() => setTick(t => t + 1), 1000); return () => clearInterval(id); }, []);
+  const isAdmin = session?.role === "Vendor Admin";
   const cases = getVisibleCases(session);
   // Always calculate the latest document status so Dashboard updates immediately
   // after SDR/SD/RF/Index 2/NOI Receipt uploads.
