@@ -593,7 +593,17 @@ function LoginPage({ onLogin }) {
     if (profile.email_verified === false) throw new Error("Your official email is not verified.");
     const code = profile.bank_code || inferBankCode(profile.bank_name);
     const bank = BANKS.find(b => b.code === code);
-    const user = { ...profile, id: authUser.id, email: authUser.email || profile.email, username: (authUser.email || profile.email || "").split("@")[0], role: profile.role, bankName: bank?.name || profile.bank_name || "", branch: profile.branch || "", active: profile.active !== false, approved: profile.approved === true, emailVerified: profile.email_verified !== false, permissions: profile.permissions || {}, loginAt: new Date().toISOString() };
+    // Supabase stores roles as snake_case in the production profile table.
+    // Normalize them here so the existing UI consistently receives its display role.
+    const normalizedRole = ({
+      vendor_admin: "Vendor Admin",
+      vendor_employee: "Vendor Employee",
+      banker: "Banker",
+      "Vendor Admin": "Vendor Admin",
+      "Vendor Employee": "Vendor Employee",
+      Banker: "Banker",
+    })[String(profile.role || "").trim()] || String(profile.role || "Banker");
+    const user = { ...profile, id: authUser.id, email: authUser.email || profile.email, username: (authUser.email || profile.email || "").split("@")[0], role: normalizedRole, bankName: bank?.name || profile.bank_name || "", branch: profile.branch || "", active: profile.active !== false, approved: profile.approved === true, emailVerified: profile.email_verified !== false, permissions: profile.permissions || {}, loginAt: new Date().toISOString() };
     DB.session = user; DB.audit("LOGIN", user.id, { email: user.email, role: user.role, bankCode: user.bankCode, branch: user.branch });
     try { if(supabase&&!DEMO_MODE) await supabase.from("audit_logs").insert({ user_id: user.id, action: "LOGIN", details: { email: user.email, role: user.role, bankCode: user.bankCode, branch: user.branch } }); } catch {}
     onLogin(user);
