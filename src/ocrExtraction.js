@@ -126,7 +126,7 @@ async function runTesseractOCR(file) {
 
   const result = await Tesseract.recognize(
     file,
-    "eng",
+    "eng+mar",
     {
       logger: () => {},
     }
