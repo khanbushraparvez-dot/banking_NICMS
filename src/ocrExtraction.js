@@ -354,12 +354,36 @@ export async function extractDocument(file, options = {}) {
   }
 
   return {
+  const extractionResult = {
     documentType: type,
     caseId,
     data,
     confidence,
     rawText: ocr.text,
     sourceFileName: file.name,
+  };
+
+  const {
+    data: userData,
+  } = await supabase.auth.getUser();
+
+  const { error } = await supabase
+    .from("document_extractions")
+    .insert({
+      case_id: caseId,
+      document_type: type,
+      source_file_name: file.name,
+      extracted_data: data,
+      confidence,
+      raw_text: ocr.text,
+      created_by: userData?.user?.id || null,
+    });
+
+  if (error) {
+    console.error("OCR save error:", error);
+  }
+
+  return extractionResult;
   };
 }
 
