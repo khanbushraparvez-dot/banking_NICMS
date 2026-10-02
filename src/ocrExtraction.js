@@ -4,6 +4,7 @@
  * Uses Tesseract.js in the browser.
  * No OpenAI API key required.
  */
+import { supabase } from "./supabaseClient";
 
 export const OCR_DOCUMENT_TYPES = Object.freeze({
   SL: "SL",
