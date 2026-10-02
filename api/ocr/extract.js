@@ -7,39 +7,60 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { caseId, documentType } = req.body || {};
+    const contentType = req.headers["content-type"] || "";
 
-    if (!caseId || !documentType) {
+    if (!contentType.includes("application/json")) {
       return res.status(400).json({
         ok: false,
-        error: "caseId and documentType are required.",
+        error: "OCR request must use JSON.",
       });
     }
+
+    const { caseId, documentType, rawText } = req.body || {};
+
+    if (!caseId) {
+      return res.status(400).json({
+        ok: false,
+        error: "caseId is required.",
+      });
+    }
+
+    const type = String(documentType || "").toUpperCase();
 
     const allowedTypes = ["SL", "INDEX2", "PAN", "AADHAAR"];
 
-    if (!allowedTypes.includes(String(documentType).toUpperCase())) {
+    if (!allowedTypes.includes(type)) {
       return res.status(400).json({
         ok: false,
-        error: "Unsupported document type.",
+        error: `Unsupported document type: ${type}`,
       });
     }
+
+    /*
+     * The browser performs the free OCR using Tesseract.js.
+     * This API receives the OCR text and prepares the response
+     * expected by ocrExtraction.js.
+     */
+
+    const text = String(rawText || "").trim();
 
     return res.status(200).json({
       ok: true,
       caseId,
-      documentType: String(documentType).toUpperCase(),
+      documentType: type,
       data: {},
       confidence: {},
-      rawText: "",
-      message: "OCR endpoint is connected. Free OCR engine will be connected next.",
+      rawText: text,
+      message: text
+        ? "OCR text received successfully."
+        : "No OCR text was supplied.",
     });
   } catch (error) {
-    console.error("OCR error:", error);
+    console.error("OCR extraction error:", error);
 
     return res.status(500).json({
       ok: false,
-      error: "OCR service failed.",
+      error: "OCR extraction failed.",
     });
   }
 }
