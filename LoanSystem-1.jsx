@@ -127,6 +127,7 @@ const DOC_TYPES = {
   SDR: { label: "SDR Receipt", icon: "🧾" },
   RF: { label: "Registration Fee Receipt", icon: "🧾" },
   NOI_RECEIPT: { label: "NOI Receipt", icon: "🧾" },
+  DEFACED_CHALLAN: { label: "Defaced Challan", icon: "📄" },
 };
 
 function caseDocuments(caseId) {
@@ -157,18 +158,20 @@ function syncCaseStatus(caseId) {
   const hasSD = docs.some(d => d.type === "SD");
   const hasRF = docs.some(d => d.type === "RF");
   const challanReady = !!rec.challanData || hasSDR || (hasSD && hasRF);
+  const hasDefaced = docs.some(d => d.type === "DEFACED_CHALLAN");
   const status = {
     challanDone: challanReady,
     sdrDone: hasSDR,
     sdDone: hasSD,
     rfDone: hasRF,
+    defacedChallanDone: hasDefaced,
     noiDone: !!rec.noiData || docs.some(d => d.type === "NOI"),
     index2Done: docs.some(d => d.type === "INDEX2"),
     noiReceiptDone: docs.some(d => d.type === "NOI_RECEIPT"),
   };
-  // Final completion is based on the documents shown on the Dashboard: 
-  // Challan (SDR OR SD+RF) + Index 2 + NOI Receipt.
-  const completed = status.challanDone && status.index2Done && status.noiReceiptDone;
+  // Final completion: (SD + RF) OR (SDR + Defaced Challan), in both cases
+  // requiring Index 2 and NOI Receipt.
+  const completed = ((status.sdDone && status.rfDone) || (status.sdrDone && status.defacedChallanDone)) && status.index2Done && status.noiReceiptDone;
   DB.update("cases", rec.id, { documentStatus: status, status: completed ? "Completed" : "Active" });
   return status;
 }
@@ -542,8 +545,8 @@ function BankSelector({ selected, onSelect }) {
 function BrandPanel({ loginAssets = LOGIN_ASSET_DEFAULTS }) {
   const features = [
     { image: loginAssets.secureLogin || LOGIN_ASSET_DEFAULTS.secureLogin, title: "Secure Login", text: "Verified email and protected account access." },
-    { image: loginAssets.roleAccess || LOGIN_ASSET_DEFAULTS.roleAccess, title: "Role Based Access", text: "Each user sees only the tools they are authorized to use." },
     { image: loginAssets.noiLifecycle || LOGIN_ASSET_DEFAULTS.noiLifecycle, title: "NOI Lifecycle Management", text: "Document → Processing → NOI → Registration → Completion." },
+    { image: loginAssets.roleAccess || LOGIN_ASSET_DEFAULTS.roleAccess, title: "Role Based Access", text: "Each user sees only the tools they are authorized to use." },
   ];
   return <div style={{flex:1,background:`linear-gradient(135deg, ${C.dark} 0%, #080d18 100%)`,display:"flex",flexDirection:"column",justifyContent:"center",padding:"46px 56px",position:"relative",overflow:"hidden",minWidth:0}}>
     <div style={{position:"absolute",top:-150,right:-110,width:420,height:420,borderRadius:"50%",background:`${C.gold}10`,border:`1px solid ${C.gold}20`}} />
@@ -581,6 +584,7 @@ function LoginPage({ onLogin }) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [loginAssets, setLoginAssets] = useState(LOGIN_ASSET_DEFAULTS);
+  const [loginPicture, setLoginPicture] = useState(null);
 
   useEffect(() => { loadLoginAssets().then(setLoginAssets); }, []);
 
@@ -640,9 +644,10 @@ function LoginPage({ onLogin }) {
   return <div style={{minHeight:"100vh",fontFamily:"'Inter','Segoe UI',sans-serif",background:C.pageBg,display:"flex",flexDirection:"column"}}>
     <header style={{height:78,background:C.white,borderBottom:`1px solid ${C.gray200}`,display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 34px",boxSizing:"border-box",flexShrink:0}}>
       <div style={{display:"flex",alignItems:"center",gap:12}}>
-        <label title="Upload picture" style={{width:46,height:46,borderRadius:"50%",background:C.white,border:`3px solid ${C.gold}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",overflow:"hidden",boxShadow:"0 4px 18px #0003",flexShrink:0}}>
-          {(() => { const src=(()=>{try{return localStorage.getItem("ark_login_picture")}catch{return null}})(); return src?<img src={src} alt="Login" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<span style={{fontSize:20}}>📷</span>; })()}
-          <input type="file" accept="image/*" style={{display:"none"}} onChange={async e=>{const f=e.target.files?.[0];if(!f)return;const d=await fileToDataUrl(f);try{localStorage.setItem("ark_login_picture",d)}catch{};setError("");}}/>
+        <label title="Upload profile picture" style={{width:46,height:46,borderRadius:"50%",background:C.white,border:`3px solid ${C.gold}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",overflow:"hidden",boxShadow:"0 4px 18px #0003",flexShrink:0,position:"relative"}}>
+          {loginPicture ? <img src={loginPicture} alt="Profile preview" style={{width:"100%",height:"100%",objectFit:"cover"}}/> : <span style={{fontSize:19,color:C.dark}}>👤</span>}
+          <span style={{position:"absolute",right:-1,bottom:-1,width:17,height:17,borderRadius:"50%",background:C.gold,color:C.dark,fontSize:10,fontWeight:900,display:"flex",alignItems:"center",justifyContent:"center",border:`2px solid ${C.white}`}}>↑</span>
+          <input type="file" accept="image/*" style={{display:"none"}} onChange={async e=>{const f=e.target.files?.[0];if(!f)return;try{setLoginPicture(await fileToDataUrl(f));setError("");}catch{setError("Unable to load the selected picture.");}}}/>
         </label>
         <img src={loginAssets.logo || LOGIN_ASSET_DEFAULTS.logo} alt="AR SKEIL" style={{height:48,width:78,objectFit:"cover",objectPosition:"center",borderRadius:8}} />
         <div><div style={{fontWeight:900,color:C.dark,fontSize:16}}>ARSKEIL SERVICES LLP</div><div style={{fontSize:13,color:C.gold,fontWeight:800,letterSpacing:.3}}>Powered by श्री दिनेश एंटरप्राइजेज</div></div>
@@ -843,7 +848,7 @@ function ProfileSettings({session,onSessionChange}){
 function Sidebar({ active, setPage, session, onLogout }) {
   const role=session?.role;
   const NAV=[{id:"dashboard",icon:"⊞",label:"Dashboard"},{id:"cases",icon:"📁",label:"Cases"}];
-  const TOOLS= role==="Banker" ? [{id:"calculator",icon:"🖩",label:"Calculator"},{id:"uploadDocuments",icon:"⬆️",label:"Upload Documents"},{id:"allDocuments",icon:"📂",label:"All Documents"}] : role==="Vendor Employee" ? [{id:"calculator",icon:"🖩",label:"Calculator"},{id:"receivedDocuments",icon:"📥",label:"Received Documents"},{id:"aiDocuments",icon:"🤖",label:"AI Extraction"},{id:"challan",icon:"📄",label:"Challan"},{id:"noi",icon:"ℹ️",label:"NOI"}] : [];
+  const TOOLS= role==="Banker" ? [{id:"calculator",icon:"🖩",label:"Calculator"},{id:"uploadDocuments",icon:"⬆️",label:"Upload Documents"},{id:"allDocuments",icon:"📂",label:"All Documents"}] : role==="Vendor Employee" ? [{id:"calculator",icon:"🖩",label:"Calculator"},{id:"receivedDocuments",icon:"📥",label:"Received Documents"},{id:"allDocuments",icon:"📂",label:"All Documents"},{id:"aiDocuments",icon:"🤖",label:"AI Extraction"},{id:"challan",icon:"📄",label:"Challan"},{id:"noi",icon:"ℹ️",label:"NOI"}] : [];
   const REPORTS= role==="Vendor Admin" ? [{id:"mis",icon:"📋",label:"MIS Report"},{id:"payment",icon:"💳",label:"Payment Tracking"},{id:"admin",icon:"⚙️",label:"Admin Panel"}] : role==="Vendor Employee" ? [{id:"mis",icon:"📋",label:"MIS Report"},{id:"payment",icon:"💳",label:"Payment Tracking"}] : [];
   const roleColor={Banker:C.sky,"Vendor Employee":C.green,"Vendor Admin":C.indigo}[role]||C.gray400;
   const Item=({item})=><div onClick={()=>setPage(item.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 16px",borderRadius:7,cursor:"pointer",marginBottom:2,background:active===item.id?C.sidebarActive:"transparent",color:active===item.id?C.gold:C.gray400,fontWeight:active===item.id?700:400,fontSize:14,transition:"all .15s",borderLeft:active===item.id?`3px solid ${C.gold}`:"3px solid transparent"}}><span style={{fontSize:16}}>{item.icon}</span>{item.label}</div>;
@@ -865,7 +870,7 @@ function Dashboard({ setPage, session }) {
   const statusOf = c => statusMap[c.caseId] || {};
   const q = query.trim().toLowerCase();
   const filteredCases = cases.filter(c => (!q || String(c.caseId || "").toLowerCase().includes(q) || String(c.applicantName || "").toLowerCase().includes(q)) && (!bankFilter || String(c.bankCode||c.bankName||"").toLowerCase().includes(bankFilter.toLowerCase())) && (!branchFilter || String(c.branch||"").toLowerCase().includes(branchFilter.toLowerCase())));
-  const completed = cases.filter(c => { const st = statusOf(c); return st.challanDone && st.index2Done && st.noiReceiptDone; }).length;
+  const completed = cases.filter(c => { const st = statusOf(c); return ((st.sdDone && st.rfDone) || (st.sdrDone && st.defacedChallanDone)) && st.index2Done && st.noiReceiptDone; }).length;
   const pending = cases.length - completed;
   const downloadFor = (caseId, type) => {
     const doc = caseDocuments(caseId).find(d => d.type === type);
@@ -889,7 +894,7 @@ function Dashboard({ setPage, session }) {
       <div style={{ display: "flex", gap: 16, marginBottom: 22 }}>{statCard("Total Cases", cases.length, "📈", C.gold)}{statCard("Completed", completed, "✅", C.green)}{statCard("Pending / Active", pending, "⏰", C.amber)}</div>
       <div style={{ background: C.white, borderRadius: 10, border: `1px solid ${C.gray200}`, overflow: "auto" }}>
         <div style={{padding:"16px 24px",borderBottom:`1px solid ${C.gray200}`,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}><h3 style={{margin:0,fontWeight:700,fontSize:16,color:C.dark}}>{isAdmin?"All Cases":"My Cases"}</h3><div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search Case ID / Applicant" style={{...inputStyle,width:220}}/>{isAdmin&&<><input value={bankFilter} onChange={e=>setBankFilter(e.target.value)} placeholder="Bank" style={{...inputStyle,width:140}}/><input value={branchFilter} onChange={e=>setBranchFilter(e.target.value)} placeholder="Branch" style={{...inputStyle,width:140}}/></>}<span onClick={()=>setPage("cases")} style={{color:C.gold,fontSize:13,cursor:"pointer",fontWeight:600}}>View All →</span></div></div>
-        <table style={{width:"100%",borderCollapse:"collapse",minWidth:1250}}><thead><tr style={{background:C.gray100}}>{["Case ID","Applicant Name","Bank","Branch","Challan","Other Challans","Defaced Challan","Index 2","NOI Receipt","Status"].map(h=><th key={h} style={{padding:"10px 12px",textAlign:"left",fontSize:11,color:C.gray500,textTransform:"uppercase"}}>{h}</th>)}</tr></thead><tbody>{filteredCases.length===0?<tr><td colSpan={10} style={{padding:40,textAlign:"center",color:C.gray400}}>{cases.length?"No matching cases found.":"No cases found for your role."}</td></tr>:filteredCases.slice().sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt)).map(c=>{const st=statusOf(c);const other=st.otherChallansDone||c.otherChallans;const def=st.defacedChallanDone||c.defacedChallan;return <tr key={c.id} style={{borderBottom:`1px solid ${C.gray100}`}}><td style={{padding:"12px",color:C.gold,fontWeight:800}}>{c.caseId}</td><td style={{padding:"12px",fontWeight:600}}>{c.applicantName||"—"}</td><td style={{padding:"12px"}}>{c.bankName||c.bankCode||"—"}</td><td style={{padding:"12px"}}>{c.branch||"—"}</td><td style={{padding:"12px"}}>{challanLabel(st)}</td><td style={{padding:"12px"}}>{other?"Done":"—"}</td><td style={{padding:"12px"}}>{def?"Done":"—"}</td><td style={{padding:"12px"}}>{st.index2Done?"Done":"Pending"}</td><td style={{padding:"12px"}}>{st.noiReceiptDone?"Done":"Pending"}</td><td style={{padding:"12px"}}>{st.challanDone&&st.index2Done&&st.noiReceiptDone?<span style={{background:C.greenBg,color:C.green,padding:"5px 9px",borderRadius:6,fontWeight:800}}>Completed</span>:<span style={{background:"#fff7ed",color:C.amber,padding:"5px 9px",borderRadius:6,fontWeight:800}}>Pending</span>}</td></tr>})}</tbody></table>
+        <table style={{width:"100%",borderCollapse:"collapse",minWidth:1250}}><thead><tr style={{background:C.gray100}}>{["Case ID","Applicant Name","Bank","Branch","Challan","Other Challans","Defaced Challan","Index 2","NOI Receipt","Status"].map(h=><th key={h} style={{padding:"10px 12px",textAlign:"left",fontSize:11,color:C.gray500,textTransform:"uppercase"}}>{h}</th>)}</tr></thead><tbody>{filteredCases.length===0?<tr><td colSpan={10} style={{padding:40,textAlign:"center",color:C.gray400}}>{cases.length?"No matching cases found.":"No cases found for your role."}</td></tr>:filteredCases.slice().sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt)).map(c=>{const st=statusOf(c);const other=st.otherChallansDone||c.otherChallans;const def=st.defacedChallanDone||c.defacedChallan;return <tr key={c.id} style={{borderBottom:`1px solid ${C.gray100}`}}><td style={{padding:"12px",color:C.gold,fontWeight:800}}>{c.caseId}</td><td style={{padding:"12px",fontWeight:600}}>{c.applicantName||"—"}</td><td style={{padding:"12px"}}>{c.bankName||c.bankCode||"—"}</td><td style={{padding:"12px"}}>{c.branch||"—"}</td><td style={{padding:"12px"}}>{challanLabel(st)}</td><td style={{padding:"12px"}}>{other?"Done":"—"}</td><td style={{padding:"12px"}}>{def?"Done":"—"}</td><td style={{padding:"12px"}}>{st.index2Done?"Done":"Pending"}</td><td style={{padding:"12px"}}>{st.noiReceiptDone?"Done":"Pending"}</td><td style={{padding:"12px"}}>{((st.sdDone&&st.rfDone)||(st.sdrDone&&st.defacedChallanDone))&&st.index2Done&&st.noiReceiptDone?<span style={{background:C.greenBg,color:C.green,padding:"5px 9px",borderRadius:6,fontWeight:800}}>Completed</span>:<span style={{background:"#fff7ed",color:C.amber,padding:"5px 9px",borderRadius:6,fontWeight:800}}>Pending</span>}</td></tr>})}</tbody></table>
       </div>
     </div>
   );
@@ -2604,25 +2609,30 @@ function ReceivedDocumentsPage({ session, setPage, setActiveCaseData }) {
 
 // ─── ALL DOCUMENTS (ALL ROLES) ───────────────────────────────────────────────
 function AllDocumentsPage({ session }) {
-  const cases=getVisibleCases(session);
+  const visibleCases=getVisibleCases(session);
+  const receivedCaseIds=new Set(DB.get("received_documents").map(d=>d.caseId).filter(Boolean));
+  const cases=session?.role === "Vendor Employee"
+    ? [...visibleCases, ...DB.get("cases").filter(c=>receivedCaseIds.has(c.caseId) && !visibleCases.some(v=>v.caseId===c.caseId))]
+    : visibleCases;
   const [caseId,setCaseId]=useState("");
   const [search,setSearch]=useState("");
   const [files,setFiles]=useState({});
   const [message,setMessage]=useState("");
   const matchedCases=cases.filter(c=>{const q=search.trim().toLowerCase(); return !q || String(c.caseId||"").toLowerCase().includes(q) || String(c.applicantName||"").toLowerCase().includes(q);});
   const selected=cases.find(c=>c.caseId===caseId);
+  const canUploadLaterDocs=session?.role === "Vendor Employee";
   const upload=async type=>{const file=files[type]; if(!selected||!file){setMessage("Select a Case ID and a file first.");return;} const dataUrl=await fileToDataUrl(file); DB.insert("case_documents",{id:`doc_${Date.now()}_${Math.random()}`,caseId,type,fileName:file.name,mimeType:file.type,size:file.size,dataUrl,bankCode:selected.bankCode || session?.bankCode || "OTHERS",uploadedBy:session?.id,uploadedByName:session?.name||session?.username,uploadedAt:new Date().toISOString()}); syncCaseStatus(caseId); setMessage(`${DOC_TYPES[type].label} uploaded for ${caseId}.`); setFiles(p=>({...p,[type]:null}));};
   const docRows=caseId?caseDocuments(caseId):[];
   const findDoc=type=>docRows.find(d=>d.type===type);
-  const downloadType=type=>{const d=findDoc(type); if(d?.dataUrl) downloadDataUrl(d.dataUrl,d.fileName);};
-  return <div><h2 style={{fontWeight:800,fontSize:22,color:C.dark,margin:"0 0 5px"}}>📂 All Documents</h2><p style={{color:C.gray500,fontSize:14,margin:"0 0 20px"}}>Search the Case ID created during extraction, then upload the documents generated later.</p>
+  const downloadType=type=>{const d=findDoc(type); if(d?.dataUrl) downloadDataUrl(d.dataUrl,d.fileName); else setMessage(`${DOC_TYPES[type].label} is not uploaded for ${caseId}.`);};
+  const downloadAll=()=>{const docs=docRows.filter(d=>d?.dataUrl); if(!docs.length){setMessage("No downloadable documents are available for this case yet.");return;} docs.forEach((d,i)=>setTimeout(()=>downloadDataUrl(d.dataUrl,d.fileName),i*180));};
+  const downloadable=["SD","RF","SDR","NOI_RECEIPT","NOI","INDEX2","DEFACED_CHALLAN"];
+  return <div><h2 style={{fontWeight:800,fontSize:22,color:C.dark,margin:"0 0 5px"}}>📂 All Documents</h2><p style={{color:C.gray500,fontSize:14,margin:"0 0 20px"}}>{canUploadLaterDocs?"Search the Case ID, upload the documents generated later, and download the complete case file.":"Search the Case ID and download any documents available for the case."}</p>
     <div style={{background:C.white,border:`1px solid ${C.gray200}`,borderRadius:12,padding:20}}>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}><div><label style={labelStyle}>Search Case ID / Applicant Name</label><input style={inputStyle} value={search} onChange={e=>setSearch(e.target.value)} placeholder="e.g. ARK-2026-000001 or applicant name"/></div><div><label style={labelStyle}>Case ID</label><select style={inputStyle} value={caseId} onChange={e=>setCaseId(e.target.value)}><option value="">Select a case…</option>{matchedCases.map(c=><option key={c.caseId} value={c.caseId}>{c.caseId} — {c.applicantName||"Applicant"}</option>)}</select></div></div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}><div><label style={labelStyle}>Search Case ID / Applicant Name</label><input style={inputStyle} value={search} onChange={e=>setSearch(e.target.value)} placeholder="e.g. ARS-2026-000001 or applicant name"/></div><div><label style={labelStyle}>Case ID</label><select style={inputStyle} value={caseId} onChange={e=>setCaseId(e.target.value)}><option value="">Select a case…</option>{matchedCases.map(c=><option key={c.caseId} value={c.caseId}>{c.caseId} — {c.applicantName||"Applicant"}</option>)}</select></div></div>
       {selected && <><div style={{marginTop:16,padding:12,background:C.gray100,borderRadius:8}}><strong>Case ID:</strong> {selected.caseId} &nbsp; | &nbsp; <strong>Bank:</strong> {selected.bankCode || inferBankCode(selected.bankName)} &nbsp; | &nbsp; <strong>Applicant:</strong> {selected.applicantName||"—"}</div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:14,marginTop:18}}>
-          {["SDR","SD","RF","INDEX2","NOI_RECEIPT","NOI"].map(type=><div key={type} style={{border:`1px solid ${C.gray200}`,borderRadius:10,padding:14}}><div style={{fontWeight:800,color:C.dark,marginBottom:8}}>{DOC_TYPES[type].icon} {DOC_TYPES[type].label}</div><input type="file" accept=".pdf,.jpg,.jpeg" onChange={e=>setFiles(p=>({...p,[type]:e.target.files?.[0]||null}))}/><button onClick={()=>upload(type)} style={{marginTop:9,background:C.gold,color:C.dark,border:"none",borderRadius:6,padding:"7px 11px",fontWeight:700,cursor:"pointer"}}>Upload</button></div>)}
-        </div>
-        <div style={{marginTop:22}}><SectionTitle>Available Downloads</SectionTitle><div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10}}>{[["SDR","SDR"],["SD","SD"],["RF","RF"],["INDEX2","Index 2"],["NOI_RECEIPT","NOI Receipt"]].map(([type,label])=>{const d=findDoc(type); return <button key={type} disabled={!d} onClick={()=>downloadType(type)} style={{padding:10,border:`1px solid ${C.gray300}`,borderRadius:7,background:C.white,textAlign:"left",cursor:d?"pointer":"not-allowed",opacity:d?1:.5}}>⬇️ {label} {d?`— ${d.fileName}`:"— Not uploaded"}</button>})}</div></div>
+        {canUploadLaterDocs&&<div style={{marginTop:18}}><SectionTitle>Vendor Uploads — Later Documents</SectionTitle><div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:14}}>{["INDEX2","DEFACED_CHALLAN","NOI_RECEIPT"].map(type=><div key={type} style={{border:`1px solid ${C.gray200}`,borderRadius:10,padding:14}}><div style={{fontWeight:800,color:C.dark,marginBottom:8}}>{DOC_TYPES[type].icon} {DOC_TYPES[type].label}</div><input type="file" accept=".pdf,.jpg,.jpeg" onChange={e=>setFiles(p=>({...p,[type]:e.target.files?.[0]||null}))}/><button onClick={()=>upload(type)} style={{marginTop:9,background:C.gold,color:C.dark,border:"none",borderRadius:6,padding:"7px 11px",fontWeight:700,cursor:"pointer"}}>Upload</button></div>)}</div></div>}
+        <div style={{marginTop:22}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}><SectionTitle>Available Downloads</SectionTitle><button onClick={downloadAll} style={{padding:"8px 12px",background:C.dark,color:C.white,border:"none",borderRadius:7,fontWeight:800,cursor:"pointer"}}>⬇️ Download all available</button></div><div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10}}>{downloadable.map(type=>{const d=findDoc(type); return <button key={type} disabled={!d} onClick={()=>downloadType(type)} style={{padding:10,border:`1px solid ${C.gray300}`,borderRadius:7,background:C.white,textAlign:"left",cursor:d?"pointer":"not-allowed",opacity:d?1:.5}}>⬇️ {DOC_TYPES[type].label} {d?`— ${d.fileName}`:"— Not uploaded"}</button>})}</div></div>
       </>}
       {message&&<div style={{marginTop:14,background:C.greenBg,color:C.green,padding:10,borderRadius:7,fontWeight:700}}>{message}</div>}
     </div></div>;
