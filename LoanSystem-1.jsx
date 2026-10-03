@@ -734,21 +734,35 @@ function SignupPage({ onBack }) {
       const authUser=authData?.user;
       if(!authUser) throw new Error("Supabase could not create the account. Please try again.");
       const now=new Date().toISOString();
+      const needsApproval = isVendorEmployee;
       const profile={
         id:authUser.id, name:isBanker?form.name.trim():"", email, role:userType,
         bank_code:isBanker?form.bankCode:"", bank_name:isBanker?(selectedBank?.name||""):"",
         vertical:isBanker?form.vertical:"", branch:isBanker?form.branch.trim():"",
-        approved:isVendorEmployee?false:true, active:true, email_verified:true,
+        approved:!needsApproval, active:true, email_verified:true,
         permissions:isBanker?{receivedDocuments:false,aiDocuments:false,challan:false,noi:false,mis:false}:{},
-        created_at:now, approved_at:isVendorEmployee?null:now
+        created_at:now, approved_at:needsApproval?null:now
       };
       const { error: profileError } = await supabase.from("profiles").upsert(profile,{onConflict:"id"});
       if(profileError) throw profileError;
-      if(isVendorEmployee){
-        const { error: reqError }=await supabase.from("access_requests").insert({user_id:authUser.id,name:profile.name,email,role:userType,bank_code:profile.bank_code,bank_name:profile.bank_name,vertical:profile.vertical,branch:profile.branch,status:"Pending",requested_at:now});
-        if(reqError) throw reqError;
+
+      if (needsApproval) {
+        const { error: requestError } = await supabase.from("access_requests").insert({
+          user_id:authUser.id,
+          name:form.name.trim() || email.split("@")[0],
+          email,
+          role:"Vendor Employee",
+          bank_code:"",
+          bank_name:"",
+          vertical:"",
+          branch:"",
+          status:"Pending",
+          requested_at:now
+        });
+        if(requestError) throw requestError;
       }
-      try { await supabase.from("audit_logs").insert({user_id:authUser.id,action:isVendorEmployee?"ACCESS_REQUEST":"ACCOUNT_CREATED",details:{email,role:userType,bankCode:profile.bank_code,branch:profile.branch}}); } catch {}
+
+      try { await supabase.from("audit_logs").insert({user_id:authUser.id,action:"ACCOUNT_CREATED",details:{email,role:userType,bankCode:profile.bank_code,branch:profile.branch,approvalRequired:needsApproval}}); } catch {}
       setSuccess(true);
     } catch(err){setError(err.message||"Unable to create account.");}
     finally{setLoading(false);}
@@ -759,7 +773,9 @@ function SignupPage({ onBack }) {
       <div style={{fontSize:45}}>✅</div>
       <h2 style={{margin:"10px 0 8px",color:C.dark}}>Registration successful</h2>
       <p style={{color:C.gray500,fontSize:14,lineHeight:1.6}}>
-        Your official email has been verified. {isVendorEmployee?"Your Vendor Employee request has been sent to Admin for approval. You will be able to log in after approval.":"Your Banker account is ready for login."}
+        {userType === "Vendor Employee"
+          ? "Your official email has been verified. Your registration request has been sent to the Vendor Admin for approval. You can log in after the request is approved."
+          : "Your official email has been verified. Your Banker account is ready for login."}
       </p>
       <button onClick={onBack} style={{width:"100%",padding:13,background:C.gold,color:C.dark,border:"none",borderRadius:8,fontWeight:800,cursor:"pointer",marginTop:12}}>← Back to Login</button>
     </div>
