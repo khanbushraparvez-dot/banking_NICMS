@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "./src/supabaseClient";
+import { ocrFile } from "./src/ocrExtraction";
 
 // ─── THEME ───────────────────────────────────────────────────────────────────
 const C = {
@@ -1543,331 +1544,165 @@ function fuzzyNameMatch(n1, n2) {
   return Math.min(Math.round((matched / Math.max(long.length, short.length)) * 100), 99);
 }
 
-function fileToBase64(file) {
-  return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result.split(",")[1]); r.onerror = rej; r.readAsDataURL(file); });
+function cleanOcrText(text) {
+  return String(text || "")
+    .replace(/\r/g, "")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
-async function analyzeDoc(file, b64, ownerList, bankCode = "OTHERS") {
-  const isPDF = file.type === "application/pdf";
-  const mt = file.type || "image/jpeg";
-
-  const ownerCtx = ownerList.length
-    ? `\n\nKNOWN PROPERTY OWNERS (from Index II / MAHADA already processed):
-${JSON.stringify(ownerList.map(o => o.name))}
-
-NAME-MATCHING RULES FOR PAN / AADHAAR:
-- Fuzzy-match the card holder's name against every owner name above.
-- Account for common variations: "GOKUL PATIL" matches "GOKUL SHIVDAS PATIL", "JYOTI GURAV" matches "JYOTI SANTOSH GURAV" etc.
-- If best match score >= 50 → isIndexIIOwner: true, set matchedOwnerName and matchConfidence.
-- If no match or score < 50 → isIndexIIOwner: false.
-
-NAME-MATCHING RULES FOR SANCTION LETTER (applicant / co-applicant):
-- Check applicantName against owner list. Set applicantIsOwner: true if matched.
-- Check each coApplicantName. Set isOwner: true per name if matched, false if not.
-- INCLUDE in NOI only names where isOwner: true.`
-    : "";
-
-  const bankRule = BANK_EXTRACTION_RULES[bankCode] || BANK_EXTRACTION_RULES.OTHERS;
-  const selectedBankName = getBank(bankCode).name;
-  const prompt = `You are an expert AI document extraction engine for Indian home loan processing.
-SELECTED BANK FROM LOGIN: ${selectedBankName} (${bankCode})
-${bankRule}
-You have been trained on real documents from MRHFL (Mahindra Rural Housing Finance), MMFSL, NIWAS Housing Finance, TATA Capital Housing Finance, AFL (Axis Finance Limited), and others.
-ALL OUTPUT TEXT VALUES MUST BE IN UPPERCASE ENGLISH. Translate any Marathi/Hindi text to English and return UPPERCASE.
-RESPOND ONLY WITH A SINGLE VALID JSON OBJECT. No markdown, no backticks, no explanation, no text outside the JSON.
-
-════════════════════════════════════════════════════════
-STEP 1 — IDENTIFY DOCUMENT TYPE
-════════════════════════════════════════════════════════
-Choose ONE from: "IndexII", "MAHADA", "SanctionLetter", "PAN", "Aadhaar", "Unknown"
-
-IndexII  = Marathi document titled "सूची क्र.2" / "Index-2 (सूची - २)" with SRO seal, दस्त क्रमांक, गावाचे नाव
-MAHADA   = Document from "छत्रपती संभाजीनगर गृहनिर्माण" or any MAHADA body — titled "ना हरकत प्रमाणपत्र" / No Objection Certificate — has अर्ज क्रमांक, योजनेचे नाव, अर्जदाराचे नाव
-SanctionLetter = Any bank loan sanction/approval letter (Mahindra, Niwas, TATA Capital, Axis Finance, HDFC, SBI, etc.)
-PAN      = Income Tax Department PAN card image (Permanent Account Number Card)
-Aadhaar  = Aadhaar card image with 12-digit masked number
-
-════════════════════════════════════════════════════════
-STEP 2 — EXTRACTION RULES PER DOCUMENT TYPE
-════════════════════════════════════════════════════════
-
-━━━ A) IndexII (सूची क्र.2) ━━━
-This is a Marathi property registration document. Translate ALL Marathi to UPPERCASE ENGLISH.
-
-Field mapping (Marathi label → English field name):
-  दुय्यम निबंधक / सह दुय्यम निबंधक / मुख्य निबंधक  → sroOfficeName
-  दस्त क्रमांक / दम्न क्रमांक / क्रमांक,खंड व पृष्ठ  → documentNumber  (e.g. "7931/2025", "1782/2021", "9909/2026")
-  गावाचे नाव / गाव                                   → villageName     (e.g. "JUCHANDRA", "SAVKHEDA BU.", "JYUBELI")
-  तालुका                                              → talukaName
-  जिल्हा                                              → districtName
-  Property description block (पालिकेचे नाव, सर्वे नं, माळा, इमारतीचे नाव, etc.) → propertyAddress (full, UPPERCASE)
-  Survey/CTS/GAT numbers (सर्वे नं / गट नं / सी.टी.एस. / CTS)                  → surveyNumbers
-  क्षेत्रफळ / बांधकाम क्षेत्रफळ / एकूण क्षेत्र / area    → areaConstructed (e.g. "35.97 SQ.MT.")
-  Owner section — look for नाव:, Name:, 1) नाव, अर्जदाराचे नाव boxes            → ownerNames (array, ALL names found, UPPERCASE)
-  ऐवज करून देण्याचा दिनांक / दिनांक                    → documentDate
-
-  IMPORTANT: Extract ALL owners listed. Each owner block has नाव (name), वय (age), पत्ता (address), PAN नं.
-
-━━━ B) MAHADA (No Objection Certificate) ━━━
-This replaces Index II for MAHADA scheme properties (छत्रपती संभाजीनगर गृहनिर्माण / म्हाडा).
-Translate ALL Marathi to UPPERCASE ENGLISH.
-
-Field mapping:
-  अर्ज क्रमांक / Ref No                               → documentNumber  (e.g. "4150000822")
-  योजनेचे ठिकाण / scheme location                     → sroOfficeName   (e.g. "1056 T/S EWS PMAY NAKSHTRAWADI, CHH.SAMBHAJINAGAR")
-  अर्जदाराचे नाव / यशस्वी अर्जदार                      → ownerNames      (array — e.g. ["JYOTI SANTOSH GURAV"])
-  इमारत क्र., विंग, मजला क्र., सदनिका / भूखंड क्र.    → propertyAddress  (full flat/plot details, UPPERCASE)
-  Carpet Area / बांधकाम क्षेत्रफळ                       → areaConstructed
-  गाव / Village / location of scheme                  → villageName
-  Bank name mentioned in letter                        → bankName
-  Date on letter                                       → documentDate
-  villageName, talukaName, districtName from scheme address
-
-━━━ C) SanctionLetter ━━━
-Banks use DIFFERENT label names. Map them all to the same internal fields:
-
-  APPLICANT NAME — look for ANY of these labels (pick primary borrower only, strip Mr./Mrs./Ms./Shri/Smt prefix):
-    "Name of the Applicant", "Borrower's Name", "Borrower", "Customer Name", "Name"
-    → applicantName (UPPERCASE, no prefix)
-
-  CO-APPLICANT NAME — look for:
-    "Coapplicant Names", "Co-Borrower's/Guarantor's Name", "Co-Borrower", "Co-Applicant"
-    → coApplicantNames (array, UPPERCASE, no prefix)
-
-  CONTACT NUMBER — look for:
-    "Contact No. (M)", "Contact No", "Ph:", "Mobile", "Phone"
-    → contactNumber (digits only)
-
-  APPLICATION / REFERENCE NUMBER — look for:
-    "Finnone Neo ID No.", "Sanction ID", "Application No.", "Loan Application No.", "Ref Application No."
-    → applicationNumber
-
-  BANK NAME — from letterhead logo, footer, "For [Bank Name]", company name
-    → bankName (UPPERCASE, e.g. "MAHINDRA RURAL HOUSING FINANCE", "NIWAS HOUSING FINANCE", "TATA CAPITAL HOUSING FINANCE", "AXIS FINANCE")
-
-  BRANCH — "Branch:", "Branch Name"
-    → branchName (UPPERCASE)
-
-  SANCTION DATE — "Date:", "Sanction Date:", "Dated"
-    → sanctionDate
-
-  LOAN AMOUNT — CRITICAL RULES:
-    1. Look for these labels: "Loan Amount Sanctioned", "Loan Amount", "Sanction Loan Amount without insurance",
-       "Total Amount Sanctioned", "Approved Amount", "Facility Amount", "Sanctioned Amount"
-    2. Some banks have TWO rows: "Sanction Loan Amount without insurance" + "Insurance Premium" → SUM them for loanAmountSanctioned
-       Example TATA: Total Amount Sanctioned = INR 4,50,000 (this is already the sum including insurance INR 13742, so use 450000)
-       Example AFL: "Sanction Loan Amount without insurance: Rs.2566635" + "Insurance Premium: Rs.38364+Rs.5001" → sum = 2610000
-       Example MRHFL: Two separate SLs — Prime HL: 2746426 + Prime VAP: 103695 → report individually, flag isMultiProductSL
-    3. Extract numeric value only (remove Rs., INR, commas)
-    → loanAmountSanctioned (number)
-    → isMultiProductSL (bool — true only if this is 2nd/3rd SL for same applicant)
-
-  RATE OF INTEREST — look for:
-    "Rate of Interest (ROI)", "Rate of Interest", "Floating Rate of Interest", row in financial table
-    → rateOfInterest (e.g. "7.95% PER ANNUM", "13.00% PER ANNUM FLOATING", "12.00% FLOATING")
-    NOTE: For NIWAS format: "Floating Rate of Interest: 13.00% per annum" — extract "13.00%"
-    NOTE: For TATA format: table column "Rate of Interest" = "12.00% (Floating)" — extract "12.00%"
-
-  LOAN TENURE — "Term of Loan", "Tenure", "Tenor", "Repayment Period"
-    → termMonths (number)
-
-  EMI — "Amount of EMI", "Monthly Installment (EMI)", "EMI"
-    → emiAmount
-
-  PROPERTY ADDRESS — look for:
-    "Details of the Property (for which Loan is sanctioned)", "Description of the Property", "Security", "Property"
-    → propertyAddress (full address, UPPERCASE)
-
-  PROPERTY ADDRESS COMPONENTS — ALSO break the property address into these separate fields.
-  Merge the BEST data from BOTH the Sanction Letter AND Index II (prefer Index II where it has more accurate building/flat details).
-  Extract each component into the "fields" object using these EXACT keys (omit any that genuinely don't exist):
-    addr_flatNo      → flat / unit / sadnika number (e.g. "512", "1003", "502")
-    addr_floor       → floor (e.g. "5TH FLOOR", "10TH FLOOR")
-    addr_wing        → wing / block letter (e.g. "A", "B6")
-    addr_buildingName→ building / society / scheme name (e.g. "LAXMI LIFE STYLE", "NANO CITY")
-    addr_buildingNo  → building number if separate (e.g. "1")
-    addr_roadNo      → road number if mentioned
-    addr_towerNo     → tower number if mentioned
-    addr_landmark    → landmark ONLY if explicitly mentioned (e.g. "NEAR ISHAAN HOSPITAL")
-    addr_village     → village name (prefer Index II)
-    addr_taluka      → taluka (prefer Index II)
-    addr_district    → district (prefer Index II)
-  DO NOT include state, PIN code, or country in these component fields.
-  Each component still uses the {value, confidence, doubtful, missing} shape.
-
-  PROCESSING FEE — "Total Processing fees Applicable", "Processing Fee", "Mortgage Origination Fees"
-    → processingFee
-
-  LOAN PURPOSE — "Loan Purpose", "Purpose of the Loan", "Type of Loan"
-    → loanPurpose (UPPERCASE)
-
-  APPLICANT vs CO-APPLICANT INDEX II MATCHING:
-    If known owners list provided: check each name against owners.
-    applicantIsOwner: true/false
-    For each co-applicant: { name, isOwner: true/false }
-    INCLUDE in NOI only those with isOwner: true.
-
-━━━ D) PAN Card ━━━
-  नाम / Name field (first name field after photo)           → holderName (UPPERCASE)
-  पिता का नाम / Father's Name                               → fatherName (UPPERCASE)
-  जन्म की तारीख / Date of Birth                             → dateOfBirth (DD/MM/YYYY)
-  Permanent Account Number / the 10-char alphanumeric code  → panNumber (UPPERCASE, e.g. "BATPY3370D")
-  NOTE: Some PAN cards show only Name + DOB + PAN (no "Name:" label) — the name is the large bold text.
-
-━━━ E) Aadhaar Card ━━━
-  Name (bold text under photo)                              → holderName (UPPERCASE)
-  Date of Birth / DOB / Year of Birth                       → dateOfBirth
-  Gender                                                    → gender
-  12-digit number (show only last 4, mask rest as XXXX XXXX XXXX) → aadhaarNumber
-  Address                                                   → address (UPPERCASE)
-
-${ownerCtx}
-
-════════════════════════════════════════════════════════
-STEP 3 — CONFIDENCE SCORING (apply to every extracted field)
-════════════════════════════════════════════════════════
-{ "value": "EXTRACTED TEXT", "confidence": 0-100, "doubtful": bool, "missing": bool }
-90-100: clearly printed, high quality
-70-89: readable, minor blur
-50-69: partially visible, inferred from context
-<50: guessed → doubtful: true
-missing: true ONLY if field genuinely absent from this document
-
-════════════════════════════════════════════════════════
-STEP 4 — OUTPUT JSON SHAPE (STRICT — no extra keys)
-════════════════════════════════════════════════════════
-{
-  "documentType": "IndexII|MAHADA|SanctionLetter|PAN|Aadhaar|Unknown",
-  "overallConfidence": 85,
-  "isMultiProductSL": false,
-  "applicantIsOwner": false,
-  "fields": {
-    "FIELD_NAME": { "value": "UPPERCASE VALUE", "confidence": 90, "doubtful": false, "missing": false }
-  },
-  "matchedOwnerName": "",
-  "matchConfidence": 0,
-  "isIndexIIOwner": false,
-  "warnings": []
+function ocrField(value, confidence = 75, doubtful = false) {
+  const v = Array.isArray(value) ? value : (value == null ? "" : String(value).trim());
+  const present = Array.isArray(v) ? v.length > 0 : !!v;
+  return { value: v, confidence: Math.max(0, Math.min(100, Math.round(confidence))), doubtful: doubtful || !present, missing: !present };
 }
 
-════════════════════════════════════════════════════════
-CALIBRATION EXAMPLES (ground truth from real documents)
-════════════════════════════════════════════════════════
-
-EXAMPLE 1 — Index II (Vasai, Thane format):
-  sroOfficeName: "MAH DU.NI.VASAI 3"
-  documentNumber: "7931/2025"
-  villageName: "JUCHANDRA"
-  surveyNumbers: "NAVEEN SURVEY NO. 351 HISSA 5, NAVEEN SURVEY NO. 352 HISSA 1/1"
-  areaConstructed: "35.97 SQ.MT."
-  ownerNames: ["KIRAN JITENDRA YADAV"]
-
-EXAMPLE 2 — Index II (Jalgaon format):
-  sroOfficeName: "DU.NI. JALGAON 1"
-  documentNumber: "1782/2021"
-  villageName: "SAVKHEDA BU."
-  surveyNumbers: "SURVEY NO. 48/1 PLOT NO. 27 GAT NO. 48/1"
-  areaConstructed: "40.09 SQ.MT."
-  ownerNames: ["GOKUL SHIVDAS PATIL", "JAYASHRI GOKUL PATIL"]
-
-EXAMPLE 3 — Index II (AFL / Thane Ulhasnagar format):
-  sroOfficeName: "SAH DU.NI. ULHASNAGAR 4"
-  documentNumber: "9909/2026"
-  villageName: "JYUBELI"
-  talukaName: "AMBARNATH"
-  districtName: "THANE"
-  ownerNames: ["AVINASH RAJENDRA SONAWANE", "SUSHMA AVINASH SONAWANE"]
-
-EXAMPLE 4 — MAHADA NOC (Sambhajinagar):
-  documentType: "MAHADA"
-  documentNumber: "4150000822"
-  sroOfficeName: "1056 T/S EWS PMAY NAKSHTRAWADI, CHH.SAMBHAJINAGAR"
-  ownerNames: ["JYOTI SANTOSH GURAV"]
-  propertyAddress: "B6 WING, FLOOR 5, SADNIKA NO. 502"
-  areaConstructed: "CARPET AREA 29.96 SQ.MT., BUILT-UP AREA 38.26 SQ.MT."
-  bankName: "NIWAS HOUSING FINANCE LIMITED"
-
-EXAMPLE 5 — MRHFL Sanction Letter:
-  bankName: "MAHINDRA RURAL HOUSING FINANCE"
-  applicantName: "KIRAN JITENDRA YADAV"
-  contactNumber: "9152448854"
-  coApplicantNames: [{"name": "SURAJ JITENDRA YADAV", "isOwner": false}]
-  loanAmountSanctioned: 2746426
-  rateOfInterest: "7.95% PER ANNUM"
-  propertyAddress: "FLAT NO 512, 5TH FLOOR, BUILDING NO 1, LAXMI LIFE STYLE, NEAR ISHAAN HOSPITAL, JUCHANDRA, VASI, THANE, MAHARASHTRA-401208"
-  applicationNumber: "A000002417782"
-  isMultiProductSL: false
-
-EXAMPLE 5b — MRHFL 2nd SL (insurance/VAP — same applicant):
-  isMultiProductSL: true
-  loanAmountSanctioned: 103695
-  (these two SLs sum to 2850121 total)
-
-EXAMPLE 6 — NIWAS Housing Finance Sanction Letter:
-  bankName: "NIWAS HOUSING FINANCE LIMITED"
-  applicantName: "SANTOSH KRISHNA GURAV"
-  coApplicantNames: [{"name": "JYOTI GURAV", "isOwner": false}]  ← name does NOT match Index II exactly
-  contactNumber: "8390111942"
-  applicationNumber: "20260511248633"
-  loanAmountSanctioned: 1050000
-  rateOfInterest: "13.00% PER ANNUM FLOATING"
-  termMonths: 156
-  propertyAddress: "SADNIKA 502 B6 WING NAKSHTRWADI, AURANGABAD CITY S.O, AURANGABAD-MH, MAHARASHTRA, INDIA-431001"
-
-EXAMPLE 7 — TATA Capital Housing Finance Sanction Letter:
-  bankName: "TATA CAPITAL HOUSING FINANCE LIMITED"
-  applicantName: "GOKUL SHIVDAS PATIL"
-  coApplicantNames: [{"name": "JAYASHRI GOKUL PATIL", "isOwner": true}]  ← both match Index II
-  contactNumber: "9421675643"
-  applicationNumber: "APPHE0121349"
-  loanAmountSanctioned: 450000   ← Total Amount Sanctioned row (already includes insurance)
-  rateOfInterest: "12.00% FLOATING"
-  termMonths: 180
-  propertyAddress: "PLOT NO. 27, UNIT NO. SOUTHERN SIDE BLOCK NO. 1, PLOT NO. 27, SOUTHERN SIDE BLOCK NO. 1, PLOT NO. 27, GAT 48/1, NEAR SWAMI SAMARTH KENDRA, SAVKHEDA SHIVAR, OFF DHULE HIGHWAY, JALGAON, MAHARASHTRA, 425001"
-
-EXAMPLE 8 — AFL (Axis Finance) Sanction Letter:
-  bankName: "AXIS FINANCE LIMITED"
-  applicantName: "AVINASH RAJENDRA SONAWANE"
-  coApplicantNames: [{"name": "SUSHMA AVINASH SONAWANE", "isOwner": true}]  ← both match Index II
-  contactNumber: "7506130769"
-  applicationNumber: "AFHA00025899"
-  loanAmountSanctioned: 2610000  ← "Loan Amount including Insurance Premium" row
-  rateOfInterest: "10.50% PER ANNUM MONTHLY"
-  termMonths: 240
-  propertyAddress: "PROPERTY FLAT 1003 10TH FLOOR A WING NANO CITY JOVELI OPP INDIAN OIL PETROL PUMP NEAR GODREJ VIHAA KARJAT ROAD BADLAPUR EAST THANE MAHARASHTRA-421503"
-
-EXAMPLE 9 — PAN Card (standard format):
-  holderName: "KIRAN JITENDRA YADAV"
-  panNumber: "BATPY3370D"
-  dateOfBirth: "03/03/2001"
-  isIndexIIOwner: true, matchedOwnerName: "KIRAN JITENDRA YADAV", matchConfidence: 100
-
-EXAMPLE 10 — PAN Card (abbreviated name on card):
-  Card shows: "GOKUL PATIL" → holderName: "GOKUL PATIL"
-  Index II owner: "GOKUL SHIVDAS PATIL" → fuzzy match score ~70 → isIndexIIOwner: true
-  panNumber: "BIZPP5567K"
-  dateOfBirth: "18/06/1986"`;
-
-  const content = isPDF
-    ? [{ type: "document", source: { type: "base64", media_type: "application/pdf", data: b64 } }, { type: "text", text: prompt }]
-    : [{ type: "image", source: { type: "base64", media_type: mt, data: b64 } }, { type: "text", text: prompt }];
-
-  const resp = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 2000, messages: [{ role: "user", content }] })
-  });
-  const data = await resp.json();
-  const raw = data.content?.map(i => i.text || "").join("") || "";
-  // Strip any accidental markdown fences
-  const clean = raw.replace(/```json[\s\S]*?```/g, m => m.slice(7, -3)).replace(/```/g, "").trim();
-  try { return JSON.parse(clean); }
-  catch (e) {
-    // Try extracting first JSON object from response
-    const match = clean.match(/\{[\s\S]*\}/);
-    if (match) return JSON.parse(match[0]);
-    throw new Error("AI returned non-JSON: " + clean.slice(0, 200));
+function firstMatch(text, patterns, flags = "i") {
+  for (const pattern of patterns) {
+    const m = String(text || "").match(new RegExp(pattern, flags));
+    if (m?.[1]) return m[1].trim();
   }
+  return "";
+}
+
+function allMatches(text, pattern, flags = "gi") {
+  const out = []; let m;
+  const re = pattern instanceof RegExp ? pattern : new RegExp(pattern, flags);
+  while ((m = re.exec(String(text || ""))) !== null) {
+    if (m[1]) out.push(String(m[1]).trim());
+    if (m.index === re.lastIndex) re.lastIndex++;
+  }
+  return out.filter(Boolean);
+}
+
+function normalizeOcrName(v) {
+  return String(v || "")
+    .replace(/^(mr|mrs|ms|miss|shri|smt)\.?\s+/i, "")
+    .replace(/[^A-Za-z .'-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase();
+}
+
+function parseAmount(v) {
+  const n = String(v || "").replace(/₹|INR|RS\.?/gi, "").replace(/,/g, "").match(/\d+(?:\.\d+)?/);
+  return n ? Number(n[0]) : 0;
+}
+
+function parseDateValue(v) {
+  const m = String(v || "").match(/\b(\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}|\d{4}[\/-]\d{1,2}[\/-]\d{1,2})\b/);
+  return m ? m[1] : String(v || "").trim();
+}
+
+function transliterateMarathi(s) {
+  // Simple phonetic transliteration for names/places when Marathi OCR is returned.
+  const map = { 'अ':'a','आ':'aa','इ':'i','ई':'ee','उ':'u','ऊ':'oo','ऋ':'ri','ए':'e','ऐ':'ai','ओ':'o','औ':'au','क':'k','ख':'kh','ग':'g','घ':'gh','ङ':'n','च':'ch','छ':'chh','ज':'j','झ':'jh','ञ':'n','ट':'t','ठ':'th','ड':'d','ढ':'dh','ण':'n','त':'t','थ':'th','द':'d','ध':'dh','न':'n','प':'p','फ':'ph','ब':'b','भ':'bh','म':'m','य':'y','र':'r','ल':'l','व':'v','श':'sh','ष':'sh','स':'s','ह':'h','ळ':'l','क्ष':'ksh','ज्ञ':'dny','त्र':'tr','श्र':'shr','ा':'aa','ि':'i','ी':'ee','ु':'u','ू':'oo','ृ':'ri','े':'e','ै':'ai','ो':'o','ौ':'au','ं':'n','ः':'h','ँ':'n','्':'','ऽ':'','़':'','।':'.' };
+  return String(s || '').split('').map(ch => map[ch] ?? ch).join('').replace(/\s+/g,' ').trim().toUpperCase();
+}
+
+function guessDocumentType(fileName, text) {
+  const n = String(fileName || '').toLowerCase();
+  const t = String(text || '').toLowerCase();
+  if (/aadhaar|aadhar/.test(n) || /aadhaar|aadhar|unique identification/.test(t)) return "Aadhaar";
+  if (/pan/.test(n) || /income tax department|permanent account number/.test(t)) return "PAN";
+  if (/mahada|mhada|noc/.test(n) || /no objection certificate|housing board|गृहनिर्माण|म्हाडा/.test(t)) return "MAHADA";
+  if (/index|index2|suchi/.test(n) || /index[- ]?2|सूची|दस्त क्रमांक|दुय्यम निबंधक|sub registrar/.test(t)) return "IndexII";
+  if (/sanction|sl\b|approval|loan/.test(n) || /sanction|loan amount|rate of interest|sanctioned amount|borrower|co-borrower/.test(t)) return "SanctionLetter";
+  return "Unknown";
+}
+
+function extractOwnerNames(text) {
+  const out = [];
+  const lines = cleanOcrText(text).split(/\n/).map(x => x.trim()).filter(Boolean);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (/owner|purchaser|buyer|transferee|घेण|खरेदी|नाव\s*:/i.test(line)) {
+      const candidate = line.replace(/^.*?(owner|purchaser|buyer|transferee|घेणारा|घेणारे|नाव)\s*[:\-]?/i, "");
+      const c = normalizeOcrName(transliterateMarathi(candidate));
+      if (c.length >= 3 && /[A-Z]/.test(c)) out.push(c);
+      for (const nxt of [lines[i+1], lines[i+2]]) {
+        const nn = normalizeOcrName(transliterateMarathi(nxt || ""));
+        if (nn.length >= 5 && /[A-Z]/.test(nn) && !/^(ADDRESS|AGE|PAN|MOBILE|PHONE|DOB)/.test(nn)) out.push(nn);
+      }
+    }
+  }
+  return [...new Set(out)].slice(0, 10);
+}
+
+function buildLocalExtraction(file, text, ownerList = []) {
+  const raw = cleanOcrText(text);
+  const upper = raw.toUpperCase();
+  const type = guessDocumentType(file.name, raw);
+  const fields = {};
+  const set = (k, v, c = 78) => { fields[k] = ocrField(v, c, !v); };
+
+  if (type === "PAN") {
+    set("holderName", normalizeOcrName(firstMatch(raw, ["(?:Name|नाम)\\s*[:\\-]?\\s*([A-Za-z][A-Za-z .'-]{2,})", "(?:Name)\\s+([A-Z][A-Z .'-]{2,})"])), 88);
+    set("panNumber", firstMatch(upper, ["\\b([A-Z]{5}[0-9]{4}[A-Z])\\b"]), 95);
+    set("dateOfBirth", parseDateValue(firstMatch(raw, ["(?:DOB|DATE OF BIRTH|D\.O\.B)\\s*[:\\-]?\\s*([0-9/.-]+)"])), 90);
+  } else if (type === "Aadhaar") {
+    set("holderName", normalizeOcrName(firstMatch(raw, ["(?:Name|नाम)\\s*[:\\-]?\\s*([A-Za-z][A-Za-z .'-]{2,})"])), 82);
+    set("aadhaarNumber", firstMatch(upper, ["\\b(\\d{4}[ -]?\\d{4}[ -]?\\d{4})\\b"]), 95);
+    set("dateOfBirth", parseDateValue(firstMatch(raw, ["(?:DOB|DATE OF BIRTH|D\.O\.B|YOB)\\s*[:\\-]?\\s*([0-9/.-]+)"])), 90);
+    set("address", firstMatch(raw, ["(?:Address|पत्ता)\\s*[:\\-]?\\s*([\\s\\S]{10,200})"]), 70);
+  } else if (type === "IndexII" || type === "MAHADA") {
+    const docNo = firstMatch(raw, ["(?:Document\\s*(?:No|Number)|Doc(?:ument)?\\s*No|दस्त\\s*(?:क्रमांक|क्र)|क्रमांक)\\s*[:\\-]?\\s*([A-Za-z0-9\\/-]{4,})"]);
+    const sro = firstMatch(raw, ["(?:Sub[ -]?Registrar|SRO|दुय्यम निबंधक|सह दुय्यम निबंधक)\\s*[:\\-]?\\s*([^\\n]{3,100})"]);
+    const village = firstMatch(raw, ["(?:Village|गाव(?:ाचे)?\\s*नाव)\\s*[:\\-]?\\s*([^\\n,]{2,80})"]);
+    const taluka = firstMatch(raw, ["(?:Taluka|तालुका)\\s*[:\\-]?\\s*([^\\n,]{2,80})"]);
+    const district = firstMatch(raw, ["(?:District|जिल्हा)\\s*[:\\-]?\\s*([^\\n,]{2,80})"]);
+    const survey = firstMatch(raw, ["(?:Survey|CTS|C\\.?T\\.?S\\.?|Gat|गट|सर्वे)\\s*(?:No|Number|नं)?\\s*[:\\-]?\\s*([A-Za-z0-9\\/, .-]{1,80})"]);
+    const area = firstMatch(raw, ["(?:Area|Carpet Area|Built[- ]?up Area|क्षेत्रफळ|बांधकाम क्षेत्रफळ)\\s*[:\\-]?\\s*([0-9.]+\\s*(?:SQ\\.?\\s*M(?:T|TR)?|SQ\\.?\\s*FT|SQUARE FEET|SQM)?)"]);
+    const address = firstMatch(raw, ["(?:Property Address|Property|Description of the Property|मालमत्ता|पालिकेचे नाव)\\s*[:\\-]?\\s*([\\s\\S]{15,300})"]);
+    const owners = extractOwnerNames(raw);
+    set("documentNumber", docNo, 88); set("sroOfficeName", transliterateMarathi(sro), 80); set("villageName", transliterateMarathi(village), 78); set("talukaName", transliterateMarathi(taluka), 78); set("districtName", transliterateMarathi(district), 78);
+    set("surveyNumbers", survey, 82); set("areaConstructed", area, 78); set("propertyAddress", transliterateMarathi(address), 72);
+    set("ownerNames", owners.length ? owners : "", owners.length ? 82 : 30);
+    set("documentDate", parseDateValue(firstMatch(raw, ["(?:Date|दिनांक)\\s*[:\\-]?\\s*([0-9/.-]+)"])), 82);
+    if (type === "MAHADA") set("bankName", firstMatch(upper, ["(?:BANK|BANK NAME)\\s*[:\\-]?\\s*([^\\n]{3,80})"]), 75);
+  } else if (type === "SanctionLetter") {
+    const applicant = normalizeOcrName(firstMatch(raw, ["(?:Name of the Applicant|Applicant Name|Borrower(?:'s)? Name|Customer Name|Borrower)\\s*[:\\-]?\\s*([^\\n]{3,100})"]));
+    const coRaw = firstMatch(raw, ["(?:Co[- ]?Applicant(?: Names)?|Co[- ]?Borrower(?:'s)?(?:/Guarantor)?(?:'s)? Name|Coapplicant Names)\\s*[:\\-]?\\s*([^\\n]{3,180})"]);
+    const coApplicants = coRaw ? coRaw.split(/[;,|]/).map(normalizeOcrName).filter(Boolean) : [];
+    const amounts = allMatches(raw, "(?:Loan Amount Sanctioned|Sanction Loan Amount(?: without insurance)?|Total Amount Sanctioned|Approved Amount|Facility Amount|Sanctioned Amount|Loan Amount)\\s*[:\\-]?\\s*(?:INR|Rs\\.?|₹)?\\s*([0-9][0-9,]*(?:\\.[0-9]+)?)");
+    const baseLoan = amounts.length ? Math.max(...amounts.map(parseAmount)) : 0;
+    const insurance = firstMatch(raw, ["(?:Insurance Premium|Insurance)\\s*[:\\-]?\\s*(?:INR|Rs\\.?|₹)?\\s*([0-9][0-9,]*(?:\\.[0-9]+)?)"]);
+    const amount = baseLoan + (insurance && !/(Total Amount Sanctioned|Total Sanctioned)/i.test(raw) ? parseAmount(insurance) : 0);
+    const roi = firstMatch(raw, ["(?:Rate of Interest(?: \\(ROI\\))?|Floating Rate of Interest|ROI)\\s*[:\\-]?\\s*([0-9]+(?:\\.[0-9]+)?\\s*%[A-Za-z ]*)"]);
+    const application = firstMatch(raw, ["(?:Finnone Neo ID No\\.?|Sanction ID|Application No\\.?|Loan Application No\\.?|Ref Application No\\.?)\\s*[:\\-]?\\s*([A-Za-z0-9\\/-]+)"]);
+    const bank = firstMatch(upper, ["(?:BANK NAME|FOR)\\s*[:\\-]?\\s*([^\\n]{3,100})"]);
+    const branch = firstMatch(raw, ["(?:Branch(?: Name)?)\\s*[:\\-]?\\s*([^\\n]{2,100})"]);
+    const date = parseDateValue(firstMatch(raw, ["(?:Sanction Date|Date|Dated)\\s*[:\\-]?\\s*([0-9/.-]+)"]));
+    const tenure = firstMatch(raw, ["(?:Term of Loan|Tenure|Tenor|Repayment Period)\\s*[:\\-]?\\s*([0-9]{1,4})\\s*(?:months?|month|yrs?|years?)?"]);
+    const emi = firstMatch(raw, ["(?:Amount of EMI|Monthly Installment|Monthly Instalment|EMI)\\s*[:\\-]?\\s*(?:INR|Rs\\.?|₹)?\\s*([0-9,]+(?:\\.[0-9]+)?)"]);
+    const purpose = firstMatch(raw, ["(?:Purpose|Loan Purpose)\\s*[:\\-]?\\s*([^\\n]{3,100})"]);
+    const processingFee = firstMatch(raw, ["(?:Processing Fee|Total Processing Fees?)\\s*[:\\-]?\\s*(?:INR|Rs\\.?|₹)?\\s*([0-9,]+(?:\\.[0-9]+)?)"]);
+    const property = firstMatch(raw, ["(?:Details of the Property(?: \\(for which Loan is sanctioned\\))?|Description of the Property|Security|Property Address|Property)\\s*[:\\-]?\\s*([\\s\\S]{15,300})"]);
+    const pincode = firstMatch(raw, ["\\b(\\d{6})\\b"]);
+    set("applicantName", applicant, 88); set("coApplicantNames", coApplicants, coApplicants.length ? 80 : 55); set("contactNumber", firstMatch(raw, ["(?:Contact No\\.? ?\\(M\\)|Contact No|Mobile|Phone|Ph)\\s*[:\\-]?\\s*([0-9 +()-]{10,20})"]), 85);
+    set("applicationNumber", application, 86); set("bankName", bank, 72); set("branchName", branch, 78); set("sanctionDate", date, 82); set("loanAmountSanctioned", amount || "", amount ? 90 : 25); set("rateOfInterest", roi, 88); set("termMonths", tenure, 82); set("emiAmount", emi, 82); set("loanPurpose", purpose, 72); set("processingFee", processingFee, 78); set("propertyAddress", property, 70); set("pincode", pincode, 95);
+  }
+
+  const result = { documentType: type, fields, rawText: raw, overallConfidence: Object.values(fields).length ? Math.round(Object.values(fields).reduce((a,x)=>a+(Number(x.confidence)||0),0)/Object.values(fields).length) : 0, warnings: [] };
+  // Link PAN/Aadhaar to known Index-II owners locally so the later save step works without an AI service.
+  if ((type === "PAN" || type === "Aadhaar") && ownerList.length) {
+    const holder = fields.holderName?.value || "";
+    let best = 0, bestName = "";
+    for (const owner of ownerList) { const score = fuzzyNameMatch(holder, owner.name); if (score > best) { best = score; bestName = owner.name; } }
+    result.isIndexIIOwner = best >= 45; result.matchedOwnerName = bestName; result.matchConfidence = best;
+  }
+  return result;
+}
+
+async function analyzeDoc(file, ownerList, bankCode = "OTHERS", onProgress) {
+  const lower = String(file.name || "").toLowerCase();
+  const language = /index|suchi|mahada|mhada|noc/i.test(lower) ? "eng+mar" : "eng";
+  const { text, pages, method } = await ocrFile(file, { language, maxPages: 30, onProgress });
+  if (!text || text.replace(/\s/g, "").length < 8) throw new Error("No readable text was detected. Please upload a clear PDF/JPG/PNG.");
+  const result = buildLocalExtraction(file, text, ownerList);
+  result.pages = pages; result.ocrMethod = method; result.bankCode = bankCode;
+  return result;
 }
 
 function DocumentUpload({ session, activeCaseData, mergeActiveCaseData, setPage }) {
@@ -1927,8 +1762,9 @@ function DocumentUpload({ session, activeCaseData, mergeActiveCaseData, setPage 
     for (const fo of sorted) {
       setProcessingFile(fo.name);
       try {
-        const b64 = await fileToBase64(fo.file);
-        const r = await analyzeDoc(fo.file, b64, masters, session?.bankCode || "OTHERS");
+        const r = await analyzeDoc(fo.file, masters, session?.bankCode || "OTHERS", progress => {
+          if (progress?.status === "pdf") setProcessingFile(`${fo.name} — PDF page ${progress.page}/${progress.total}`);
+        });
 
         // ── IndexII or MAHADA: build owner master list ──────────────────
         if (r.documentType === "IndexII" || r.documentType === "MAHADA") {
@@ -2016,7 +1852,9 @@ function DocumentUpload({ session, activeCaseData, mergeActiveCaseData, setPage 
     setView("review");
   };
 
-  const save = () => {
+  const save = async () => {
+    const autoCase = linkedCase || (activeCaseData?.caseId ? DB.get("cases").find(c => c.caseId === activeCaseData.caseId) : null);
+    if (!linkedCase && autoCase) setLinkedCase(autoCase);
     const slResults = results.filter(r => r.documentType === "SanctionLetter");
     const propDoc = results.find(r => r.documentType === "IndexII" || r.documentType === "MAHADA");
 
@@ -2073,7 +1911,10 @@ function DocumentUpload({ session, activeCaseData, mergeActiveCaseData, setPage 
     const coApplicants = (() => {
       if (!coAppsRaw) return [];
       const arr = Array.isArray(coAppsRaw) ? coAppsRaw : [coAppsRaw];
-      return arr.filter(x => typeof x === "object" ? x.isOwner : false).map(x => typeof x === "object" ? x.name : x);
+      const indexOwners = owners.map(o => o.name).filter(Boolean);
+      return arr.map(x => typeof x === "object" ? x : { name: x, isOwner: true })
+        .filter(x => x?.name && (x.isOwner !== false) && (!indexOwners.length || indexOwners.some(n => fuzzyNameMatch(String(x.name), String(n)) >= 45)))
+        .map(x => String(x.name).toUpperCase());
     })();
 
     // ── Per-SL breakdown for storage/audit ─────────────────────────────
@@ -2125,12 +1966,26 @@ function DocumentUpload({ session, activeCaseData, mergeActiveCaseData, setPage 
     // Push to global active case store (persists across tab switches)
     if (mergeActiveCaseData) mergeActiveCaseData(extracted);
 
-    // Persist to linked DB case (single source of truth)
-    if (linkedCase) {
-      DB.update("cases", linkedCase.id, { bankCode: extracted.bankCode || linkedCase.bankCode || session?.bankCode || inferBankCode(extracted.bankName), aiData: extracted, applicantName: extracted.applicantName || linkedCase.applicantName, bankName: extracted.bankName || linkedCase.bankName, loanAmount: extracted.loanAmount || linkedCase.loanAmount, branch: linkedCase.branch || extracted.branchName || session?.branch || "", storeData: { ...(linkedCase.storeData || {}), ...extracted, caseId: linkedCase.caseId } });
-      results.forEach(r => { const src = files.find(f => f.id === r.fileId); DB.insert("ai_documents", { id:`aid_${Date.now()}_${Math.random()}`, caseId:linkedCase.caseId, bankCode:extracted.bankCode || linkedCase.bankCode || session?.bankCode || "OTHERS", documentType:r.documentType, fileName:r.fileName, extractedAt:new Date().toISOString(), extractedData:r }); });
-      syncCaseStatus(linkedCase.caseId);
-      DB.audit("AI_DATA_SAVED", session?.id, { caseId: linkedCase.caseId, sls: slResults.length, totalLoan });
+    // Persist to the linked Case ID. If the AI page was opened directly, create the case now.
+    let targetCase = autoCase;
+    if (!targetCase && (extracted.applicantName || extracted.loanAmount || extracted.bankName)) {
+      const caseId = DB.generateCaseId();
+      targetCase = { id:`case_${Date.now()}`, caseId, applicantName:extracted.applicantName || "", loanFileNumber:extracted.applicationNumber || "", bankName:extracted.bankName || "", bankCode:extracted.bankCode || session?.bankCode || inferBankCode(extracted.bankName), loanAmount:extracted.loanAmount || 0, branch:extracted.branchName || session?.branch || "", createdAt:new Date().toISOString(), createdBy:session?.id, status:"Active", aiData:extracted, storeData:{...extracted,caseId} };
+      DB.insert("cases", targetCase);
+    }
+    if (targetCase) {
+      const caseId = targetCase.caseId;
+      DB.update("cases", targetCase.id, { bankCode: extracted.bankCode || targetCase.bankCode || session?.bankCode || inferBankCode(extracted.bankName), aiData: extracted, applicantName: extracted.applicantName || targetCase.applicantName, bankName: extracted.bankName || targetCase.bankName, loanAmount: extracted.loanAmount || targetCase.loanAmount, branch: targetCase.branch || extracted.branchName || session?.branch || "", storeData: { ...(targetCase.storeData || {}), ...extracted, caseId } });
+      setLinkedCase({ ...targetCase, ...extracted, caseId });
+      results.forEach(r => {
+        DB.insert("ai_documents", { id:`aid_${Date.now()}_${Math.random()}`, caseId, bankCode:extracted.bankCode || targetCase.bankCode || session?.bankCode || "OTHERS", documentType:r.documentType, fileName:r.fileName, extractedAt:new Date().toISOString(), extractedData:r });
+        if (!DEMO_MODE && supabase) {
+          supabase.from("document_extractions").upsert({ case_id:caseId, document_type:r.documentType || "Unknown", source_file_name:r.fileName || "", extracted_data:r.fields || {}, confidence:{ overall:r.overallConfidence || 0 }, raw_text:r.rawText || "", created_by:session?.id || null, created_at:new Date().toISOString(), updated_at:new Date().toISOString() }).then(({error}) => { if (error) console.warn("OCR extraction DB save:", error.message); });
+        }
+      });
+      syncCaseStatus(caseId);
+      DB.audit("AI_DATA_SAVED", session?.id, { caseId, sls: slResults.length, totalLoan });
+      if (mergeActiveCaseData) mergeActiveCaseData({ ...extracted, caseId });
     }
 
     setVerifiedData({ owners, savedAt: new Date().toISOString(), totalLoan, standardAddress });
@@ -2450,7 +2305,7 @@ function MIS({ session, activeCaseData }) {
     caseId: preset.caseId || preset.srNo || "",
   });
 
-  const [rows, setRows] = useState([mkRow()]);
+  const [rows, setRows] = useState([mkRow(activeCaseData ? { caseId:activeCaseData.caseId, srNo:activeCaseData.caseId, customerName:activeCaseData.applicantName, coApplicant:activeCaseData.coApplicants?.[0] || "", bankName:activeCaseData.bankName, branchName:activeCaseData.branchName || activeCaseData.branch, loanAmt:activeCaseData.loanAmount, roi:activeCaseData.rateOfInterest, applicationNo:activeCaseData.applicationNumber, sanctionDate:activeCaseData.sanctionDate, propertyAddress:activeCaseData.propertyAddressFormatted, village:activeCaseData.villageName, taluka:activeCaseData.talukaName, district:activeCaseData.districtName, pincode:activeCaseData.pincode, areaConstructed:activeCaseData.areaConstructed, sroName:activeCaseData.sroOfficeName, sroNo:activeCaseData.documentNumber } : {})]);
   const [savingId, setSavingId] = useState(null);
   useEffect(() => {
     let alive=true;
