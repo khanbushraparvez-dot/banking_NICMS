@@ -1530,6 +1530,82 @@ function NOI({ session, activeCaseData, mergeActiveCaseData }) {
   );
 }
 
+// ─── REUSABLE CASE SEARCH ─────────────────────────────────────────────────────
+function CaseSearchBar({ onSelect, placeholder = "Search Case ID or Applicant Name…" }) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const [cases, setCases] = useState([]);
+
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      try {
+        const local = DB.get("cases") || [];
+        if (local.length) {
+          if (alive) setCases(local);
+          return;
+        }
+        if (!DEMO_MODE && supabase) {
+          const { data } = await supabase.from("app_records").select("record_id,payload").eq("table_name", "cases");
+          if (alive) setCases((data || []).map(x => ({ ...(x.payload || {}), id: x.record_id })));
+        }
+      } catch (e) {
+        console.warn("Case search load:", e?.message || e);
+      }
+    };
+    load();
+    return () => { alive = false; };
+  }, []);
+
+  const q = query.trim().toLowerCase();
+  const matches = (cases || []).filter(c => {
+    if (!q) return true;
+    return String(c.caseId || "").toLowerCase().includes(q) ||
+      String(c.applicantName || "").toLowerCase().includes(q) ||
+      String(c.loanFileNumber || "").toLowerCase().includes(q);
+  }).slice(0, 8);
+
+  const choose = c => {
+    setQuery(c.caseId || c.applicantName || "");
+    setOpen(false);
+    onSelect?.(c);
+  };
+
+  return (
+    <div style={{ position: "relative" }}>
+      <input
+        style={inputStyle}
+        value={query}
+        onChange={e => { setQuery(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 180)}
+        placeholder={placeholder}
+      />
+      {open && matches.length > 0 && (
+        <div style={{ position: "absolute", zIndex: 50, left: 0, right: 0, top: "calc(100% + 4px)", background: C.white, border: `1px solid ${C.gray300}`, borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,.12)", maxHeight: 260, overflowY: "auto" }}>
+          {matches.map(c => (
+            <button
+              type="button"
+              key={c.id || c.caseId}
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => choose(c)}
+              style={{ display: "block", width: "100%", textAlign: "left", border: "none", background: C.white, padding: "10px 12px", cursor: "pointer", borderBottom: `1px solid ${C.gray100}` }}
+            >
+              <div style={{ fontWeight: 800, color: C.dark, fontSize: 13 }}>{c.caseId || "—"}</div>
+              <div style={{ color: C.gray500, fontSize: 12, marginTop: 2 }}>{c.applicantName || "Applicant"}{c.bankName ? ` · ${c.bankName}` : ""}</div>
+            </button>
+          ))}
+        </div>
+      )}
+      {open && q && matches.length === 0 && (
+        <div style={{ position: "absolute", zIndex: 50, left: 0, right: 0, top: "calc(100% + 4px)", background: C.white, border: `1px solid ${C.gray300}`, borderRadius: 8, padding: 12, color: C.gray500, fontSize: 12, boxShadow: "0 8px 24px rgba(0,0,0,.08)" }}>
+          No matching Case ID found.
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── AI DOCUMENT INTELLIGENCE ─────────────────────────────────────────────────
 function fuzzyNameMatch(n1, n2) {
   const norm = n => n.toLowerCase().replace(/\./g, " ").replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
