@@ -217,7 +217,7 @@ def extract_roi(text: str) -> Optional[str]:
 def extract_property_address(text: str) -> Optional[str]:
     lines = [clean_line(x) for x in text.splitlines()]
     anchors = re.compile(
-        r"(?:details\s+of\s+(?:the\s+)?property|property\s*/\s*security\s+address|property\s+and\s+security\s+address|security\s+address|address\s+of\s+(?:the\s+)?property|property\s+address|property\s+offered\s+as\s+security|description\s+of\s+(?:the\s+)?property|security\s+details|collateral\s+address|mortgaged\s+property)", re.I)
+        r"(?:details\s+of\s+(?:the\s+)?property|property\s*/\s*security(?:\s+address)?|property\s+and\s+security(?:\s+address)?|security(?:\s+address|\s+details|\s+offered)?|address\s+of\s+(?:the\s+)?property|property\s+address|property\s+(?:offered\s+as\s+security|sanctioned|details|description)|sanctioned\s+property|description\s+of\s+(?:the\s+)?property|collateral\s+address|mortgaged\s+property)", re.I)
     stop = re.compile(r"^(?:applicant|borrower|co.?applicant|customer\s+address|residential\s+address|correspondence\s+address|present\s+address|permanent\s+address|loan|application|sanction|rate of interest|ROI|branch|bank|lender|amount|EMI|tenure|term|signature|date|contact|mobile|PAN|Aadhaar|declaration|witness)\b", re.I)
     for i, line in enumerate(lines):
         m = anchors.search(line)
@@ -294,7 +294,7 @@ def extract_index_fields(text: str):
         "villageName": field(value_after_label(text, [r"(?:VILLAGE(?:\s*NAME)?|गावाचे नाव|गाव)\s*[:：\-]?\s*(.*)"], 2, 80), 60),
         "talukaName": field(value_after_label(text, [r"(?:TALUKA|तालुका)\s*[:：\-]?\s*(.*)"], 2, 80), 60),
         "districtName": field(value_after_label(text, [r"(?:DISTRICT|जिल्हा)\s*[:：\-]?\s*(.*)"], 2, 80), 60),
-        "propertyAddress": field(value_after_label(text, [r"(?:PROPERTY ADDRESS|PROPERTY DESCRIPTION|मिळकतीचे वर्णन|मिळकत वर्णन|मिळकतीचा तपशील)\s*[:：\-]?\s*(.*)"], 5, 220), 60),
+        "propertyAddress": field(value_after_label(text, [r"(?:PROPERTY ADDRESS|PROPERTY DESCRIPTION|PROPERTY SANCTIONED|SANCTIONED PROPERTY|PROPERTY / SECURITY|PROPERTY\s+AND\s+SECURITY|SECURITY(?: ADDRESS| DETAILS)?|मिळकतीचे वर्णन|मिळकत वर्णन|मिळकतीचा तपशील)\s*[:：\-]?\s*(.*)"], 5, 220), 60),
         "surveyNumbers": field(value_after_label(text, [r"(?:SURVEY\s*(?:NO\.?|NUMBER)|CTS\s*(?:NO\.?|NUMBER)?|GAT\s*(?:NO\.?|NUMBER)?|सर्वे नं|गट नं|सी\.?टी\.?एस\.?)\s*[:：\-]?\s*(.*)"], 1, 100), 60),
         "areaConstructed": field(value_after_label(text, [r"(?:CARPET AREA|BUILT.?UP AREA|AREA|क्षेत्रफळ|बांधकाम क्षेत्रफळ)\s*[:：\-]?\s*([0-9,.]+\s*(?:SQ\.?\s*M\.?|SQ\.?\s*FT\.?|SQUARE MET(?:ER|RE)S?)?)"], 1, 80), 60),
         "documentDate": field(value_after_label(text, [r"(?:DOCUMENT DATE|DATE OF DOCUMENT|REGISTRATION DATE|DATE)\s*[:：\-]?\s*(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})"], 6, 20), 65),
@@ -317,10 +317,10 @@ def extract_owner_names(text: str):
 
 def extract_sl_fields(text: str):
     applicant = value_after_label(text, [
-        r"^\s*(?:name\s+of\s+(?:the\s+)?applicant|applicant\s+name|name\s+of\s+(?:the\s+)?borrower|borrower\s+name|primary\s+borrower|customer\s+name|applicant|borrower)\b\s*[:：=\-]?\s*(.*)"
+        r"^\s*(?:name\s+of\s+(?:the\s+)?applicant|applicant\s+name|name\s+of\s+(?:the\s+)?borrower|borrower(?:[’'’]s)?\s+name|primary\s+borrower(?:\s+name)?|customer\s+name|applicant|borrower)\b\s*[:：=\-]?\s*(.*)"
     ], min_len=3, max_len=100)
     coapp = value_after_label(text, [
-        r"^\s*(?:name\s+of\s+(?:the\s+)?co[ -]?applicant|co[ -]?applicant\s+name|co[ -]?borrower\s+name|joint\s+applicant\s+name|co[ -]?borrower|co[ -]?applicant)\b\s*[:：=\-]?\s*(.*)"
+        r"^\s*(?:name\s+of\s+(?:the\s+)?co[ -]?applicant|co[ -]?applicant(?:[’'’]s)?\s+name|co[ -]?borrower(?:[’'’]s)?\s+name|joint\s+applicant\s+name|co[ -]?borrower|co[ -]?applicant)\b\s*[:：=\-]?\s*(.*)"
     ], min_len=3, max_len=100)
     app_no = value_after_label(text, [
         r"(?:application\s*(?:/\s*loan\s*)?(?:form\s*)?(?:no\.?|number|#|id)|loan\s+(?:account\s+|agreement\s+)?(?:no\.?|number|#)|proposal\s*(?:no\.?|number|#)|finnone\s*(?:id|no\.?|number)|reference\s*(?:no\.?|number|#)|loan\s+id|application\s+reference|\bLAN\b)\s*[:：=\-]?\s*([A-Z0-9][A-Z0-9\-/]{2,39})"
