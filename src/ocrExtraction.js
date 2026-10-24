@@ -86,24 +86,20 @@ export async function extractDocument(file, options = {}) {
   const type = String(documentType || "").toUpperCase();
   if (!OCR_DOCUMENT_TYPES[type]) throw new Error(`Unsupported OCR document type: ${documentType}`);
 
+  // Send base64 JSON to the same-origin Vercel API; the OCR provider key stays server-side.
   const fileBase64 = await new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => {
-      const result = String(reader.result || "");
-      const comma = result.indexOf(",");
-      resolve(comma >= 0 ? result.slice(comma + 1) : result);
-    };
+    reader.onload = () => resolve(String(reader.result || ""));
     reader.onerror = () => reject(new Error("Could not read the selected file."));
     reader.readAsDataURL(file);
   });
-
   const response = await fetch(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      fileName: file.name,
-      mimeType: file.type || (file.name.toLowerCase().endsWith(".pdf") ? "application/pdf" : "application/octet-stream"),
       fileBase64,
+      fileName: file.name,
+      mimeType: file.type || (file.name.toLowerCase().endsWith(".pdf") ? "application/pdf" : "image/jpeg"),
       caseId,
       documentType: type,
       prompt: buildExtractionPrompt(type),

@@ -1,5 +1,4 @@
 import base64
-import hmac
 import io
 import os
 import re
@@ -11,7 +10,7 @@ from PIL import Image
 from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-import easyocr
+from paddleocr import PaddleOCR
 
 app = FastAPI(title="ARSKEIL Open OCR", version="2.0.0")
 allowed = [x.strip() for x in os.getenv("ALLOWED_ORIGINS", "*").split(",") if x.strip()]
@@ -23,10 +22,16 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
-# EasyOCR runs locally on CPU by default. English is enabled for the first end-to-end SL test.
-# Marathi Index 2 support is not claimed by this English-only reader.
-ocr_en = easyocr.Reader(["en"], gpu=False, verbose=False)
-MARATHI_MODEL_READY = False
+# PaddleOCR 2.10 uses language code "mr" for Marathi/Devanagari.
+# The service remains usable for English-only documents if Marathi model loading fails.
+ocr_en = PaddleOCR(use_angle_cls=True, lang="en", show_log=False)
+try:
+    ocr_mr = PaddleOCR(use_angle_cls=True, lang="mr", show_log=False)
+    MARATHI_MODEL_READY = True
+except Exception as exc:
+    ocr_mr = None
+    MARATHI_MODEL_READY = False
+    print("Marathi OCR model unavailable; English OCR remains active:", str(exc)[:300])
 
 class ExtractRequest(BaseModel):
     fileName: str = "document.pdf"
@@ -35,7 +40,6 @@ class ExtractRequest(BaseModel):
     bankCode: str = "OTHERS"
     ownerNames: list[str] = Field(default_factory=list)
     prompt: str = ""
-    documentType: str = ""
 
 
 def pdf_pages(raw: bytes, mime: str):
@@ -70,19 +74,31 @@ def has_devanagari(text: str) -> bool:
 
 def run_ocr(engine, image: Image.Image):
     arr = np.asarray(image.convert("RGB"))
-    results = engine.readtext(arr, detail=0, paragraph=False)
+    results = engine.ocr(arr, cls=True)
     lines = []
-    for item in results or []:
-        value = str(item).strip()
-        if value and value not in lines:
-            lines.append(value)
+    for block in results or []:
+        for item in block or []:
+            try:
+                value = str(item[1][0]).strip()
+                if value and value not in lines:
+                    lines.append(value)
+            except Exception:
+                continue
     return lines
 
 
 def ocr_pages(pages, file_name: str, text_hint: str = "") -> str:
+    # Use the Marathi-capable model for Index 2 / Devanagari; always run English too.
+    name = (file_name or "").lower()
+    likely_index = any(k in name for k in ("index", "index2", "index_2", "index ii", "suchi", "7-12"))
+    devanagari_hint = has_devanagari(text_hint)
     all_pages = []
     for page in pages:
-        lines = run_ocr(ocr_en, page)
+        lines = []
+        if ocr_mr is not None and (likely_index or devanagari_hint):
+            lines.extend(run_ocr(ocr_mr, page))
+        lines.extend(run_ocr(ocr_en, page))
+        # Preserve original reading order as much as possible while removing exact duplicates.
         seen = set()
         cleaned = []
         for line in lines:
@@ -329,15 +345,8 @@ def extract_sl_fields(text: str):
     }
 
 
-def map_fields(name, text, owner_names, requested_type=""):
-    # Respect the document type explicitly selected in ARSKEIL; only infer from content as fallback.
-    requested = (requested_type or "").strip().upper()
-    type_aliases = {
-        "SL": "SanctionLetter", "SANCTIONLETTER": "SanctionLetter",
-        "INDEX2": "IndexII", "INDEXII": "IndexII", "INDEX 2": "IndexII",
-        "PAN": "PAN", "AADHAAR": "Aadhaar", "AADHAR": "Aadhaar",
-    }
-    typ = type_aliases.get(requested, "") or guess_type(name, text)
+def map_fields(name, text, owner_names):
+    typ = guess_type(name, text)
     if typ == "IndexII":
         fields = extract_index_fields(text)
     elif typ == "SanctionLetter":
@@ -367,73 +376,31 @@ def map_fields(name, text, owner_names, requested_type=""):
         warnings.append("Document type could not be identified. Choose the correct type or use a clearer file.")
     if typ == "SanctionLetter" and found < 4:
         warnings.append("Some required SL fields were not confidently found. Check the source scan and review the missing fields.")
-    # Frontend expects data fields and confidence values, not the raw parser's wrapper objects.
-    raw_values = {key: (value.get("value") if isinstance(value, dict) else value) for key, value in fields.items()}
-    confidence = {key: (float(value.get("confidence", 0)) / 100 if isinstance(value, dict) else 0) for key, value in fields.items()}
-    if typ == "SanctionLetter":
-        data = {
-            "borrowerName": raw_values.get("applicantName"),
-            "coBorrowerName": raw_values.get("coApplicantName"),
-            "loanAccountOrApplicationNumber": raw_values.get("applicationNumber"),
-            "sanctionedLoanAmount": raw_values.get("loanAmountSanctioned"),
-            "roi": raw_values.get("rateOfInterest"),
-            "bankName": raw_values.get("bankName"),
-            "branch": raw_values.get("branchName"),
-            "propertyAddress": raw_values.get("propertyAddress"),
-            # Existing aliases retained for any legacy UI code.
-            "applicantName": raw_values.get("applicantName"),
-            "coApplicantNames": raw_values.get("coApplicantNames"),
-            "applicationNumber": raw_values.get("applicationNumber"),
-            "loanAmountSanctioned": raw_values.get("loanAmountSanctioned"),
-            "rateOfInterest": raw_values.get("rateOfInterest"),
-            "branchName": raw_values.get("branchName"),
-        }
-        confidence = {
-            "borrowerName": confidence.get("applicantName", 0),
-            "coBorrowerName": confidence.get("coApplicantName", 0),
-            "loanAccountOrApplicationNumber": confidence.get("applicationNumber", 0),
-            "sanctionedLoanAmount": confidence.get("loanAmountSanctioned", 0),
-            "roi": confidence.get("rateOfInterest", 0),
-            "bankName": confidence.get("bankName", 0),
-            "branch": confidence.get("branchName", 0),
-            "propertyAddress": confidence.get("propertyAddress", 0),
-        }
-    elif typ == "IndexII":
-        data = {
-            "documentNumber": raw_values.get("documentNumber"), "sroName": raw_values.get("sroOfficeName"),
-            "purchaserOwnerName": raw_values.get("ownerNames"), "propertyAddress": raw_values.get("propertyAddress"),
-            "surveyNumber": raw_values.get("surveyNumbers"), "ctsNumber": None, "plotNumber": None, "gatNumber": None,
-            "village": raw_values.get("villageName"), "taluka": raw_values.get("talukaName"),
-            "district": raw_values.get("districtName"), "propertyArea": raw_values.get("areaConstructed"),
-        }
-    elif typ == "PAN":
-        data = {"name": raw_values.get("holderName"), "panNumber": raw_values.get("panNumber"), "dateOfBirth": raw_values.get("dateOfBirth")}
-    elif typ == "Aadhaar":
-        data = {"name": raw_values.get("holderName"), "aadhaarNumber": raw_values.get("aadhaarNumber"), "dateOfBirthOrYearOfBirth": raw_values.get("dateOfBirth"), "address": raw_values.get("address")}
-    else:
-        data = {}
     return {
-        "ok": True,
         "documentType": typ,
-        "data": data,
-        "confidence": confidence,
         "overallConfidence": int(round(100 * found / expected)) if text.strip() else 0,
+        "isMultiProductSL": False,
+        "applicantIsOwner": False,
+        "fields": fields,
+        "matchedOwnerName": "",
+        "matchConfidence": 0,
+        "isIndexIIOwner": False,
         "warnings": warnings,
         "rawText": text,
-        "ocrEngine": "EasyOCR",
+        "ocrEngine": "PaddleOCR",
         "marathiModelReady": MARATHI_MODEL_READY,
     }
 
 
 @app.get("/health")
 def health():
-    return {"ok": True, "engine": "EasyOCR", "openSource": True, "marathiModelReady": MARATHI_MODEL_READY}
+    return {"ok": True, "engine": "PaddleOCR", "openSource": True, "marathiModelReady": MARATHI_MODEL_READY}
 
 
 @app.post("/extract")
 def extract(req: ExtractRequest, authorization: str = Header(default="")):
     expected = os.getenv("OCR_SERVICE_TOKEN", "")
-    if not expected or not hmac.compare_digest(authorization, f"Bearer {expected}"):
+    if not expected or authorization != f"Bearer {expected}":
         raise HTTPException(status_code=401, detail="Unauthorized OCR request.")
     try:
         raw = base64.b64decode(req.fileBase64, validate=True)
@@ -454,7 +421,7 @@ def extract(req: ExtractRequest, authorization: str = Header(default="")):
         else:
             pages = pdf_pages(raw, req.mimeType)
             text = ocr_pages(pages, req.fileName, text_layer)
-        result = map_fields(req.fileName, text, req.ownerNames, req.documentType)
+        result = map_fields(req.fileName, text, req.ownerNames)
         result["ok"] = True
         return result
     except HTTPException:
