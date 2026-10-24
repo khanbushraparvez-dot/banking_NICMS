@@ -8,6 +8,6 @@ export default async function handler(req, res) {
     const body = await upstream.json().catch(() => ({}));
     return res.status(upstream.status).json(body);
   } catch (e) {
-    return res.status(502).json({ ok: false, error: "Could not reach the PaddleOCR service. Check its URL and whether the free Space has finished waking up." });
+    return res.status(502).json({ ok: false, error: "Could not reach the EasyOCR service. Check that the OCR service and its tunnel are running and that OCR_SERVICE_URL is current." });
   }
 }

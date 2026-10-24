@@ -86,13 +86,30 @@ export async function extractDocument(file, options = {}) {
   const type = String(documentType || "").toUpperCase();
   if (!OCR_DOCUMENT_TYPES[type]) throw new Error(`Unsupported OCR document type: ${documentType}`);
 
-  const formData = new FormData();
-  formData.append("file", file);
-  formData.append("caseId", caseId);
-  formData.append("documentType", type);
-  formData.append("prompt", buildExtractionPrompt(type));
+  const fileBase64 = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || "");
+      const comma = result.indexOf(",");
+      resolve(comma >= 0 ? result.slice(comma + 1) : result);
+    };
+    reader.onerror = () => reject(new Error("Could not read the selected file."));
+    reader.readAsDataURL(file);
+  });
 
-  const response = await fetch(endpoint, { method: "POST", body: formData, signal });
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      fileName: file.name,
+      mimeType: file.type || (file.name.toLowerCase().endsWith(".pdf") ? "application/pdf" : "application/octet-stream"),
+      fileBase64,
+      caseId,
+      documentType: type,
+      prompt: buildExtractionPrompt(type),
+    }),
+    signal,
+  });
   let payload;
   try { payload = await response.json(); }
   catch { throw new Error(`OCR server returned an invalid response (${response.status}).`); }
