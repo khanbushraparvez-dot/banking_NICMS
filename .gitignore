@@ -5,3 +5,10 @@ dist/
 .env.*.local
 npm-debug.log*
 .DS_Store
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.paddleocr/
+paddleocr/
