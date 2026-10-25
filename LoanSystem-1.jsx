@@ -1906,7 +1906,7 @@ EXAMPLE 10 — PAN Card (abbreviated name on card):
   return data;
 }
 
-function DocumentUpload({ session, activeCaseData, mergeActiveCaseData, setPage }) {
+function DocumentUpload({ session, activeCaseData, mergeActiveCaseData, setActiveCaseData, setPage }) {
   const [files, setFiles] = useState([]);
   const [processing, setProcessing] = useState(false);
   const [processingFile, setProcessingFile] = useState("");
@@ -2158,18 +2158,60 @@ function DocumentUpload({ session, activeCaseData, mergeActiveCaseData, setPage 
       extractedAt: new Date().toISOString(),
     };
 
+    // A verified AI extraction must always belong to a Case ID. Reuse a selected case,
+    // otherwise create one automatically at Save Verified Data time.
+    let targetCase = linkedCase;
+    if (!targetCase) {
+      const caseId = DB.generateCaseId();
+      const now = new Date().toISOString();
+      targetCase = {
+        id: `case_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        caseId,
+        loanFileNumber: appNo || "",
+        applicantName: (applicantName || "").toUpperCase(),
+        coApplicants: coApplicants || [],
+        bankName: (bankName || "").toUpperCase(),
+        bankCode: session?.bankCode || inferBankCode(bankName),
+        loanAmount: totalLoan || 0,
+        branch: (branchName || session?.branch || "").toUpperCase(),
+        createdAt: now,
+        createdBy: session?.id,
+        createdByEmail: session?.email,
+        createdByName: session?.name || session?.username,
+        status: "Active",
+      };
+      DB.insert("cases", targetCase);
+      setLinkedCase(targetCase);
+    }
+    extracted.caseId = targetCase.caseId;
+
     // Push to global active case store (persists across tab switches)
     if (mergeActiveCaseData) mergeActiveCaseData(extracted);
+    if (setActiveCaseData) setActiveCaseData({ ...(targetCase.storeData || {}), ...extracted, caseId: targetCase.caseId });
 
-    // Persist to linked DB case (single source of truth)
-    if (linkedCase) {
-      DB.update("cases", linkedCase.id, { bankCode: extracted.bankCode || linkedCase.bankCode || session?.bankCode || inferBankCode(extracted.bankName), aiData: extracted, applicantName: extracted.applicantName || linkedCase.applicantName, bankName: extracted.bankName || linkedCase.bankName, loanAmount: extracted.loanAmount || linkedCase.loanAmount, branch: linkedCase.branch || extracted.branchName || session?.branch || "", storeData: { ...(linkedCase.storeData || {}), ...extracted, caseId: linkedCase.caseId } });
-      results.forEach(r => { const src = files.find(f => f.id === r.fileId); DB.insert("ai_documents", { id:`aid_${Date.now()}_${Math.random()}`, caseId:linkedCase.caseId, bankCode:extracted.bankCode || linkedCase.bankCode || session?.bankCode || "OTHERS", documentType:r.documentType, fileName:r.fileName, extractedAt:new Date().toISOString(), extractedData:r }); });
-      syncCaseStatus(linkedCase.caseId);
-      DB.audit("AI_DATA_SAVED", session?.id, { caseId: linkedCase.caseId, sls: slResults.length, totalLoan });
-    }
+    // Persist extraction and every source document to the same case.
+    DB.update("cases", targetCase.id, {
+      bankCode: extracted.bankCode || targetCase.bankCode || session?.bankCode || inferBankCode(extracted.bankName),
+      aiData: extracted,
+      applicantName: extracted.applicantName || targetCase.applicantName,
+      bankName: extracted.bankName || targetCase.bankName,
+      loanAmount: extracted.loanAmount || targetCase.loanAmount,
+      branch: targetCase.branch || extracted.branchName || session?.branch || "",
+      storeData: { ...(targetCase.storeData || {}), ...extracted, caseId: targetCase.caseId },
+    });
+    results.forEach(r => DB.insert("ai_documents", {
+      id:`aid_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      caseId: targetCase.caseId,
+      bankCode: extracted.bankCode || targetCase.bankCode || session?.bankCode || "OTHERS",
+      documentType:r.documentType,
+      fileName:r.fileName,
+      extractedAt:new Date().toISOString(),
+      extractedData:r,
+    }));
+    syncCaseStatus(targetCase.caseId);
+    DB.audit("AI_DATA_SAVED", session?.id, { caseId: targetCase.caseId, sls: slResults.length, totalLoan });
 
-    setVerifiedData({ owners, savedAt: new Date().toISOString(), totalLoan, standardAddress });
+    setVerifiedData({ owners, savedAt: new Date().toISOString(), totalLoan, standardAddress, caseId: targetCase.caseId });
     setView("verified");
   };
 
@@ -2192,7 +2234,7 @@ function DocumentUpload({ session, activeCaseData, mergeActiveCaseData, setPage 
   if (view === "verified") return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
-        <div><h2 style={{ fontWeight: 800, fontSize: 22, color: C.dark, margin: "0 0 4px" }}>✅ AI Documents Verified</h2><p style={{ color: C.gray500, fontSize: 13, margin: 0 }}>Saved · {new Date(verifiedData.savedAt).toLocaleString()}{linkedCase ? ` · Case: ${linkedCase.caseId}` : ""}</p></div>
+        <div><h2 style={{ fontWeight: 800, fontSize: 22, color: C.dark, margin: "0 0 4px" }}>✅ AI Documents Verified</h2><p style={{ color: C.gray500, fontSize: 13, margin: 0 }}>Saved · {new Date(verifiedData.savedAt).toLocaleString()} · Case: {verifiedData.caseId || linkedCase?.caseId || "Generated"}</p></div>
         <div style={{ display: "flex", gap: 10 }}>
           <button onClick={reset} style={{ background: C.white, color: C.dark, border: `1px solid ${C.gray300}`, borderRadius: 8, padding: "10px 18px", fontWeight: 600, cursor: "pointer" }}>+ New Upload</button>
           {setPage && <button onClick={() => setPage("challan")} style={{ background: C.gold, color: C.dark, border: "none", borderRadius: 8, padding: "10px 20px", fontWeight: 800, cursor: "pointer" }}>Continue to Challan →</button>}
@@ -2200,6 +2242,7 @@ function DocumentUpload({ session, activeCaseData, mergeActiveCaseData, setPage 
       </div>
       <div style={{ background: C.greenBg, border: `1px solid ${C.green}`, borderRadius: 12, padding: "16px 20px", marginBottom: 24 }}>
         <div style={{ fontWeight: 700, color: C.green, fontSize: 15 }}>✅ Verified data saved to database — available to Challan, NOI, MIS, and Excel Export.</div>
+        <div style={{ marginTop: 8, fontSize: 15, fontWeight: 900, color: C.dark }}>Generated Case ID: <span style={{ color: C.gold }}>{verifiedData.caseId || linkedCase?.caseId}</span></div>
         {verifiedData.totalLoan > 0 && <div style={{ color: C.gray600, fontSize: 13, marginTop: 4 }}>Total Loan: <strong>₹{Number(verifiedData.totalLoan).toLocaleString("en-IN")}</strong>{verifiedData.standardAddress ? ` · Address: ${verifiedData.standardAddress}` : ""}</div>}
       </div>
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
@@ -2779,7 +2822,7 @@ function AllDocumentsPage({ session }) {
     <div style={{background:C.white,border:`1px solid ${C.gray200}`,borderRadius:12,padding:20}}>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}><div><label style={labelStyle}>Search Case ID / Applicant Name</label><input style={inputStyle} value={search} onChange={e=>setSearch(e.target.value)} placeholder="e.g. ARS-2026-000001 or applicant name"/></div><div><label style={labelStyle}>Case ID</label><select style={inputStyle} value={caseId} onChange={e=>setCaseId(e.target.value)}><option value="">Select a case…</option>{matchedCases.map(c=><option key={c.caseId} value={c.caseId}>{c.caseId} — {c.applicantName||"Applicant"}</option>)}</select></div></div>
       {selected && <><div style={{marginTop:16,padding:12,background:C.gray100,borderRadius:8}}><strong>Case ID:</strong> {selected.caseId} &nbsp; | &nbsp; <strong>Bank:</strong> {selected.bankCode || inferBankCode(selected.bankName)} &nbsp; | &nbsp; <strong>Applicant:</strong> {selected.applicantName||"—"}</div>
-        {canUploadLaterDocs&&<div style={{marginTop:18}}><SectionTitle>Vendor Uploads — Later Documents</SectionTitle><div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:14}}>{["INDEX2","DEFACED_CHALLAN","NOI_RECEIPT"].map(type=><div key={type} style={{border:`1px solid ${C.gray200}`,borderRadius:10,padding:14}}><div style={{fontWeight:800,color:C.dark,marginBottom:8}}>{DOC_TYPES[type].icon} {DOC_TYPES[type].label}</div><input type="file" accept=".pdf,.jpg,.jpeg" onChange={e=>setFiles(p=>({...p,[type]:e.target.files?.[0]||null}))}/><button onClick={()=>upload(type)} style={{marginTop:9,background:C.gold,color:C.dark,border:"none",borderRadius:6,padding:"7px 11px",fontWeight:700,cursor:"pointer"}}>Upload</button></div>)}</div></div>}
+        {canUploadLaterDocs&&<div style={{marginTop:18}}><SectionTitle>Vendor Uploads — Later Documents</SectionTitle><div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:14}}>{["SD","RF","SDR","DEFACED_CHALLAN","INDEX2","NOI","NOI_RECEIPT"].map(type=><div key={type} style={{border:`1px solid ${C.gray200}`,borderRadius:10,padding:14}}><div style={{fontWeight:800,color:C.dark,marginBottom:8}}>{DOC_TYPES[type].icon} {DOC_TYPES[type].label}</div><input type="file" accept=".pdf,.jpg,.jpeg" onChange={e=>setFiles(p=>({...p,[type]:e.target.files?.[0]||null}))}/><button onClick={()=>upload(type)} style={{marginTop:9,background:C.gold,color:C.dark,border:"none",borderRadius:6,padding:"7px 11px",fontWeight:700,cursor:"pointer"}}>Upload</button></div>)}</div></div>}
         <div style={{marginTop:22}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"}}><SectionTitle>Available Downloads</SectionTitle><button onClick={downloadAll} style={{padding:"8px 12px",background:C.dark,color:C.white,border:"none",borderRadius:7,fontWeight:800,cursor:"pointer"}}>⬇️ Download all available</button></div><div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10}}>{downloadable.map(type=>{const d=findDoc(type); return <button key={type} disabled={!d} onClick={()=>downloadType(type)} style={{padding:10,border:`1px solid ${C.gray300}`,borderRadius:7,background:C.white,textAlign:"left",cursor:d?"pointer":"not-allowed",opacity:d?1:.5}}>⬇️ {DOC_TYPES[type].label} {d?`— ${d.fileName}`:"— Not uploaded"}</button>})}</div></div>
       </>}
       {message&&<div style={{marginTop:14,background:C.greenBg,color:C.green,padding:10,borderRadius:7,fontWeight:700}}>{message}</div>}
@@ -2817,7 +2860,7 @@ export default function App() {
     uploadDocuments:session.role==="Banker"?<UploadDocumentsPage session={session} setActiveCaseData={setActiveCaseData} setPage={setPage}/>:<Dashboard setPage={setPage} session={session}/>,
     allDocuments:<AllDocumentsPage session={session}/>,
     receivedDocuments:canSee("receivedDocuments")?<ReceivedDocumentsPage session={session} setPage={setPage} setActiveCaseData={setActiveCaseData}/>:<Dashboard setPage={setPage} session={session}/>,
-    aiDocuments:canSee("aiDocuments")?<DocumentUpload session={session} activeCaseData={activeCaseData} mergeActiveCaseData={mergeActiveCaseData} setPage={setPage}/>:<Dashboard setPage={setPage} session={session}/>,
+    aiDocuments:canSee("aiDocuments")?<DocumentUpload session={session} activeCaseData={activeCaseData} mergeActiveCaseData={mergeActiveCaseData} setActiveCaseData={setActiveCaseData} setPage={setPage}/>:<Dashboard setPage={setPage} session={session}/>,
     challan:canSee("challan")?<Challan session={session} activeCaseData={activeCaseData} mergeActiveCaseData={mergeActiveCaseData} setActiveCaseData={setActiveCaseData}/>:<Dashboard setPage={setPage} session={session}/>,
     noi:canSee("noi")?<NOI session={session} activeCaseData={activeCaseData} mergeActiveCaseData={mergeActiveCaseData}/>:<Dashboard setPage={setPage} session={session}/>,
     mis:canSee("mis")?<MIS session={session} activeCaseData={activeCaseData}/>:<Dashboard setPage={setPage} session={session}/>,

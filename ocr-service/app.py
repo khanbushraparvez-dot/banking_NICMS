@@ -230,14 +230,14 @@ def extract_property_address(text: str) -> Optional[str]:
         r"property\s+offered\s+as\s+security|property\s+offered\s+for\s+mortgage|"
         r"property\s+sanctioned|property\s+description|sanctioned\s+property|"
         r"description\s+of\s+(?:the\s+)?property|collateral\s+address|mortgaged\s+property|"
-        r"schedule\s+of\s+property|मिळकतीचे वर्णन|मिळकत वर्णन|मिळकतीचा तपशील)", re.I)
+        r"schedule\s+of\s+property|nature\s+of\s+security|property\s+security|मिळकतीचे वर्णन|मिळकत वर्णन|मिळकतीचा तपशील)", re.I)
     label_only = re.compile(
         r"^(?:(?:details\s+of\s+(?:the\s+)?property(?:\s*\([^)]*\))?)|"
         r"property\s*/\s*security(?:\s+address)?|property\s+and\s+security(?:\s+address)?|"
         r"security(?:\s+address|\s+details|\s+offered|\s+of\s+property)?|"
         r"property\s+address|address\s+of\s+(?:the\s+)?property|property\s+details|"
         r"property\s+offered\s+as\s+security|property\s+description|description\s+of\s+(?:the\s+)?property|"
-        r"collateral\s+address|mortgaged\s+property|schedule\s+of\s+property)[\s,:;|.\-]*$", re.I)
+        r"collateral\s+address|mortgaged\s+property|schedule\s+of\s+property|nature\s+of\s+security|property\s+security)[\s,:;|.\-]*$", re.I)
     stop = re.compile(
         r"^(?:applicant|name of applicant|borrower|co.?applicant|co.?borrower|customer\s+address|"
         r"residential\s+address|correspondence\s+address|present\s+address|permanent\s+address|"
@@ -267,7 +267,7 @@ def extract_property_address(text: str) -> Optional[str]:
                 continue
             if stop.search(nxt):
                 break
-            if label_only.fullmatch(nxt) or re.fullmatch(r"(?:(?:details\s+of\s+(?:the\s+)?property|property\s+address|security|security\s+address)\s*[,;:|.\-]*\s*){2,}", nxt, re.I):
+            if label_only.fullmatch(nxt) or re.fullmatch(r"(?:(?:details\s+of\s+(?:the\s+)?property|property\s+address|security|security\s+address|nature\s+of\s+security)\s*[,;:|.\-]*\s*){1,}", nxt, re.I):
                 continue
             # A different, labelled property field is an address continuation only
             # when it is a component such as village/survey/flat; unrelated labels stop.
