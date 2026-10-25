@@ -618,7 +618,7 @@ function LoginPage({ onLogin }) {
       "Vendor Employee": "Vendor Employee",
       Banker: "Banker",
     })[String(profile.role || "").trim()] || String(profile.role || "Banker");
-    const user = { ...profile, id: authUser.id, email: authUser.email || profile.email, username: (authUser.email || profile.email || "").split("@")[0], role: normalizedRole, bankName: bank?.name || profile.bank_name || "", branch: profile.branch || "", active: profile.active !== false, approved: profile.approved === true, emailVerified: profile.email_verified !== false, permissions: profile.permissions || {}, loginAt: new Date().toISOString() };
+    const user = { ...profile, id: authUser.id, email: authUser.email || profile.email, username: (authUser.email || profile.email || "").split("@")[0], role: normalizedRole, bankName: bank?.name || profile.bank_name || "", branch: profile.branch || "", profile_pic_url: profile.profile_picture || profile.avatar_url || profile.profile_pic_url || "", active: profile.active !== false, approved: profile.approved === true, emailVerified: profile.email_verified !== false, permissions: profile.permissions || {}, loginAt: new Date().toISOString() };
     DB.session = user; DB.audit("LOGIN", user.id, { email: user.email, role: user.role, bankCode: user.bankCode, branch: user.branch });
     try { if(supabase&&!DEMO_MODE) await supabase.from("audit_logs").insert({ user_id: user.id, action: "LOGIN", details: { email: user.email, role: user.role, bankCode: user.bankCode, branch: user.branch } }); } catch {}
     onLogin(user);
@@ -931,7 +931,51 @@ function ProfileSettings({session,onSessionChange}){
   const [passwords,setPasswords]=useState({current:"",next:"",confirm:""});
   const [passwordMsg,setPasswordMsg]=useState("");
   useEffect(()=>{ if(session.role==="Vendor Admin") loadLoginAssets().then(setLoginAssets); },[session.role]);
-  const uploadProfile=async e=>{const f=e.target.files?.[0];if(!f)return;setSaving(true);try{const url=await fileToDataUrl(f);const next={...session,profile_pic_url:url};onSessionChange(next);if(DEMO_MODE){const rows=DB.get("demo_profiles").filter(x=>x.id!==session.id);DB.set("demo_profiles",[...rows,{id:session.id,profile_pic_url:url}]);}else if(supabase){await supabase.from("profiles").update({avatar_url:url}).eq("id",session.id);}setMsg("Profile picture updated.");}catch(e){setMsg(e.message||"Unable to update picture.");}finally{setSaving(false)}};
+  const uploadProfile=async e=>{
+    const f=e.target.files?.[0];
+    if(!f)return;
+    setSaving(true);setMsg("");
+    try{
+      if(!f.type.startsWith("image/")) throw new Error("Please select an image file.");
+      if(f.size>8*1024*1024) throw new Error("Please choose an image smaller than 8 MB.");
+      // Store a small JPEG data URL in the existing profiles.profile_picture column.
+      // Resizing keeps the database row small and avoids requiring a new Storage bucket.
+      const url=await new Promise((resolve,reject)=>{
+        const reader=new FileReader();
+        reader.onerror=()=>reject(new Error("Could not read the selected image."));
+        reader.onload=()=>{
+          const img=new Image();
+          img.onerror=()=>reject(new Error("This image could not be opened."));
+          img.onload=()=>{
+            const max=512,scale=Math.min(1,max/Math.max(img.width,img.height));
+            const canvas=document.createElement("canvas");
+            canvas.width=Math.max(1,Math.round(img.width*scale));
+            canvas.height=Math.max(1,Math.round(img.height*scale));
+            const ctx=canvas.getContext("2d");
+            if(!ctx){reject(new Error("Image processing is not available in this browser."));return;}
+            ctx.drawImage(img,0,0,canvas.width,canvas.height);
+            resolve(canvas.toDataURL("image/jpeg",0.82));
+          };
+          img.src=String(reader.result);
+        };
+        reader.readAsDataURL(f);
+      });
+      if(DEMO_MODE){
+        const rows=(DB.get("demo_profiles")||[]).filter(x=>x.id!==session.id);
+        DB.set("demo_profiles",[...rows,{...session, id:session.id, profile_picture:url, profile_pic_url:url}]);
+        try{localStorage.setItem("ark_profile_pic_"+session.id,url);}catch{}
+      }else{
+        if(!supabase) throw new Error("Database connection is unavailable. Please sign in again and retry.");
+        const {data:updated,error}=await supabase.from("profiles").update({profile_picture:url}).eq("id",session.id).select("id").maybeSingle();
+        if(error) throw error;
+        if(!updated) throw new Error("The profile picture was not saved. Check profile update permissions in Supabase and try again.");
+      }
+      const next={...session,profile_picture:url,profile_pic_url:url};
+      onSessionChange(next);
+      setMsg("Profile picture saved successfully. It will remain after you log out and sign in again.");
+    }catch(err){setMsg(err.message||"Unable to save profile picture.");}
+    finally{setSaving(false);e.target.value="";}
+  };
   const changePassword=async()=>{setPasswordMsg("");if(passwords.next.length<8||passwords.next!==passwords.confirm){setPasswordMsg("Use a new password of at least 8 characters and make both fields match.");return;}if(DEMO_MODE){setPasswordMsg("Password changes are disabled in demo mode.");return;}try{const {error}=await supabase.auth.updateUser({password:passwords.next});if(error)throw error;setPasswords({current:"",next:"",confirm:""});setPasswordMsg("Password updated successfully.");}catch(e){setPasswordMsg(e.message||"Unable to update password.");}};
   const saveNotifications=async(next)=>{setNotifications(next);const updated={...session,notification_preferences:next};onSessionChange(updated);if(!DEMO_MODE&&supabase)await supabase.from("profiles").update({notification_preferences:next}).eq("id",session.id);setMsg("Notification preferences saved.");};
   const uploadBranding=async(key,e)=>{const f=e.target.files?.[0];if(!f)return;setSaving(true);setMsg("");try{const url=await saveLoginAsset(key,f,session);const next={...loginAssets,[key]:url};setLoginAssets(next);setMsg("Login-page image updated. Refresh the login page to see it.");}catch(e){setMsg(e.message||"Unable to update login-page image.");}finally{setSaving(false)}};
