@@ -585,7 +585,7 @@ function BrandPanel({ loginAssets = LOGIN_ASSET_DEFAULTS }) {
   </div>;
 }
 function LoginInfoPage({title,icon,onBack,children}){return <div style={{minHeight:"100vh",background:C.pageBg,display:"flex",alignItems:"center",justifyContent:"center",padding:20,fontFamily:"'Inter','Segoe UI',sans-serif"}}><div style={{background:C.white,borderRadius:16,padding:32,width:520,maxWidth:"100%",boxShadow:"0 8px 32px #0002"}}><button onClick={onBack} style={{border:"none",background:"transparent",color:C.gold,fontSize:14,fontWeight:800,cursor:"pointer",marginBottom:12}}>← Back to Login</button><h2 style={{margin:"0 0 18px",color:C.dark,fontWeight:900}}>{icon} {title}</h2><div style={{color:C.gray600,fontSize:14,lineHeight:1.7}}>{children}</div></div></div>}
-function HelpPage({onBack}){const [name,setName]=useState("");const [email,setEmail]=useState("");const [query,setQuery]=useState("");const [sent,setSent]=useState(false);const submit=async()=>{if(!email||!query){alert("Please enter email and your query.");return;}const rec={id:`help_${Date.now()}_${Math.random()}`,name,email:email.trim().toLowerCase(),query,status:"Open",createdAt:new Date().toISOString()};DB.insert("help_queries",rec);if(supabase&&!DEMO_MODE){try{await supabase.from("app_records").upsert({table_name:"help_queries",record_id:rec.id,payload:rec},{onConflict:"table_name,record_id"});}catch{}}setSent(true)};return <div style={{minHeight:"100vh",background:C.pageBg,display:"flex",alignItems:"center",justifyContent:"center",padding:20,fontFamily:"'Inter','Segoe UI',sans-serif"}}><div style={{background:C.white,borderRadius:16,padding:32,width:520,maxWidth:"100%",boxShadow:"0 8px 32px #0002"}}><button onClick={onBack} style={{border:"none",background:"transparent",color:C.gold,fontSize:14,fontWeight:800,cursor:"pointer",marginBottom:12}}>← Back to Login</button><h2 style={{margin:"0 0 6px",color:C.dark,fontWeight:900}}>❓ Help</h2><p style={{color:C.gray500,fontSize:13}}>Send a query to the Vendor Admin. It will appear in the Admin Panel.</p>{sent?<div style={{background:C.greenBg,color:C.green,padding:14,borderRadius:9,fontWeight:800}}>✓ Your query has been sent to the Vendor Admin.</div>:<><label style={labelStyle}>Name</label><input style={inputStyle} value={name} onChange={e=>setName(e.target.value)} placeholder="Your name"/><label style={{...labelStyle,marginTop:12}}>Email</label><input style={inputStyle} type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="Your email"/><label style={{...labelStyle,marginTop:12}}>Query</label><textarea style={{...inputStyle,minHeight:120,resize:"vertical"}} value={query} onChange={e=>setQuery(e.target.value)} placeholder="Describe your issue or question..."/><button onClick={submit} style={{width:"100%",marginTop:14,padding:12,background:C.gold,color:C.dark,border:"none",borderRadius:8,fontWeight:900,cursor:"pointer"}}>Send Query</button></>}</div></div>}
+function HelpPage({onBack}){const [name,setName]=useState("");const [email,setEmail]=useState("");const [query,setQuery]=useState("");const [sent,setSent]=useState(false);const submit=async()=>{if(!email||!query){alert("Please enter email and your query.");return;}const rec={id:`help_${Date.now()}_${Math.random()}`,name,email:email.trim().toLowerCase(),query,status:"Open",createdAt:new Date().toISOString()};DB.insert("help_queries",rec);if(supabase&&!DEMO_MODE){try{await supabase.from("app_records").upsert({table_name:"help_queries",record_id:rec.id,payload:rec},{onConflict:"table_name,record_id"});}catch{}}setSent(true)};return <div style={{minHeight:"100vh",background:C.pageBg,display:"flex",alignItems:"center",justifyContent:"center",padding:20,fontFamily:"'Inter','Segoe UI',sans-serif"}}><div style={{background:C.white,borderRadius:16,padding:32,width:520,maxWidth:"100%",boxShadow:"0 8px 32px #0002"}}><button onClick={onBack} style={{border:"none",background:"transparent",color:C.gold,fontSize:14,fontWeight:800,cursor:"pointer",marginBottom:12}}>← Back to Login</button><h2 style={{margin:"0 0 6px",color:C.dark,fontWeight:900}}>❓ Help</h2><p style={{color:C.gray500,fontSize:13}}>For login, access, document upload, extraction, case workflow or reporting issues, submit a clear description below. Do not include passwords, OTPs, or unnecessary customer-sensitive information. Your request is intended for review by the Vendor Admin.</p>{sent?<div style={{background:C.greenBg,color:C.green,padding:14,borderRadius:9,fontWeight:800}}>✓ Your query has been sent to the Vendor Admin.</div>:<><label style={labelStyle}>Name</label><input style={inputStyle} value={name} onChange={e=>setName(e.target.value)} placeholder="Your name"/><label style={{...labelStyle,marginTop:12}}>Email</label><input style={inputStyle} type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="Your email"/><label style={{...labelStyle,marginTop:12}}>Query</label><textarea style={{...inputStyle,minHeight:120,resize:"vertical"}} value={query} onChange={e=>setQuery(e.target.value)} placeholder="Describe the screen, action, and error message. Do not include passwords or OTPs."/><button onClick={submit} style={{width:"100%",marginTop:14,padding:12,background:C.gold,color:C.dark,border:"none",borderRadius:8,fontWeight:900,cursor:"pointer"}}>Send Query</button></>}</div></div>}
 
 function LoginPage({ onLogin }) {
   const [authView, setAuthView] = useState("login");
@@ -646,8 +646,27 @@ function LoginPage({ onLogin }) {
     finally { setLoading(false); }
   };
 
-  if (authView === "settings") return <LoginInfoPage title="Settings" icon="⚙️" onBack={()=>setAuthView("login")}><p>Account settings are available after sign-in. Vendor Admins can manage the login-page logo and feature images from the Settings page.</p><p>Profile picture, password, notification preferences, security information and platform information are available there.</p></LoginInfoPage>;
-  if (authView === "terms") return <LoginInfoPage title="Terms" icon="📄" onBack={()=>setAuthView("login")}><p>This platform is intended for authorized loan/document processing users only.</p><p>Uploaded documents and case information should be handled only for legitimate business purposes and according to your organization's policies.</p></LoginInfoPage>;
+  if (authView === "settings") return <LoginInfoPage title="Settings & Account Security" icon="⚙️" onBack={()=>setAuthView("login")}>
+    <p><b>Purpose.</b> Settings lets signed-in users review their profile and manage the account preferences made available to their role.</p>
+    <p><b>Profile.</b> Users should keep their name, official email and profile information accurate. Profile-picture updates are available where enabled.</p>
+    <p><b>Password and sign-in.</b> Use a strong, unique password and never share login credentials or verification codes. Use the password-reset option if access is lost.</p>
+    <p><b>Notifications.</b> Where available, users can adjust email, document-received and completion notifications.</p>
+    <p><b>Role-based access.</b> Available screens and actions depend on the account role, approval status, bank/branch assignment and permissions configured by the organisation. Contact the Vendor Admin if access appears incorrect.</p>
+    <p><b>Branding and administration.</b> Login-page branding controls are restricted to authorised Vendor Admin accounts. Do not change organisational settings unless you have approval.</p>
+    <p><b>Security guidance.</b> Sign out when using a shared device, report unexpected access or data changes, and avoid uploading files unrelated to authorised work.</p>
+  </LoginInfoPage>;
+  if (authView === "terms") return <LoginInfoPage title="Terms of Use & Privacy" icon="📄" onBack={()=>setAuthView("login")}>
+    <p><b>1. Authorised use.</b> ARSKEIL – AI-Driven NOI Integration Platform is intended for approved users performing legitimate loan-processing, document-management and Notice of Intimation (NOI) activities for ARSKEIL SERVICES LLP and its authorised partners.</p>
+    <p><b>2. Account responsibility.</b> Each user is responsible for keeping credentials confidential, using their own account and promptly reporting suspected unauthorised access. Access may be restricted or deactivated according to organisational policy.</p>
+    <p><b>3. Confidential information.</b> Loan records, identity documents, property details, financial information and uploaded files must be accessed only when required for assigned work. Users must not copy, disclose, download or share this information for unauthorised purposes.</p>
+    <p><b>4. Accuracy and review.</b> Users must verify case details and document values before relying on them. OCR or automated extraction can make mistakes and must be treated as assistance, not as a substitute for reviewing the original document.</p>
+    <p><b>5. Acceptable uploads.</b> Upload only relevant, lawful files that you are authorised to handle. Do not upload malicious, unrelated or misleading content. Follow organisational rules for document retention and disposal.</p>
+    <p><b>6. Records and changes.</b> Case updates, uploads and workflow actions may be stored for operational, security and audit purposes. Users should enter accurate information and avoid duplicate or misleading records.</p>
+    <p><b>7. Availability.</b> The platform depends on configured hosting, network, database, email and document-processing services. Temporary outages, maintenance or incomplete features may affect availability. Report errors instead of attempting unauthorised workarounds.</p>
+    <p><b>8. Privacy and security.</b> Information should be processed according to applicable law and the organisation's privacy, security and retention policies. Do not use the platform to access information outside your permissions.</p>
+    <p><b>9. Changes and support.</b> Platform features and these terms may be updated as the system evolves. Contact your Vendor Admin or authorised project contact for access issues, suspected data exposure or support.</p>
+    <p><b>Important notice.</b> This in-app summary is operational guidance and does not replace a formally approved legal agreement or privacy notice. The organisation should review and approve its final wording before production use.</p>
+  </LoginInfoPage>;
   if (authView === "help") return <HelpPage onBack={()=>setAuthView("login")} />;
   if (authView === "signup") return <SignupPage onBack={() => { resetLogin(); setAuthView("login"); }} />;
   if (authView === "forgot") return <ForgotPage onBack={() => { resetLogin(); setAuthView("login"); }} />;
@@ -923,7 +942,7 @@ function ProfileSettings({session,onSessionChange}){
       {session.role==="Vendor Admin"&&<div style={{background:C.white,border:`1px solid ${C.gray200}`,borderRadius:12,padding:24}}><SectionTitle>Appearance — Login Page Branding</SectionTitle><p style={{fontSize:12,color:C.gray500,marginTop:-8,marginBottom:14}}>Only Vendor Admins can change these login-page images. The existing layout, colours, titles and text remain unchanged.</p><div style={{display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:12}}><Asset label="Logo image" keyName="logo"/><Asset label="Secure Login" keyName="secureLogin"/><Asset label="Role Based Access" keyName="roleAccess"/><Asset label="NOI Lifecycle Management" keyName="noiLifecycle"/></div></div>}
       <div style={{background:C.white,border:`1px solid ${C.gray200}`,borderRadius:12,padding:24}}><SectionTitle>Notifications</SectionTitle><div style={{display:"grid",gap:10}}>{[["email","Email notifications"],["documents","Document received notifications"],["completion","Completion notifications"]].map(([k,l])=><label key={k} style={{display:"flex",alignItems:"center",gap:10,fontSize:13,color:C.dark,cursor:"pointer"}}><input type="checkbox" checked={notifications[k]!==false} onChange={e=>saveNotifications({...notifications,[k]:e.target.checked})}/>{l}</label>)}</div></div>
       <div id="security-password" style={{background:C.white,border:`1px solid ${C.gray200}`,borderRadius:12,padding:24}}><SectionTitle>Security</SectionTitle><div style={{fontSize:13,color:C.gray600,marginBottom:12}}>Current session: <b style={{color:C.green}}>Active</b></div><div style={{fontSize:13,color:C.gray600,marginBottom:14}}>Login activity is recorded in the Vendor Admin audit logs.</div><div style={{display:"grid",gridTemplateColumns:"repeat(3,minmax(0,1fr))",gap:10}}><input type="password" style={inputStyle} placeholder="New password" value={passwords.next} onChange={e=>setPasswords(p=>({...p,next:e.target.value}))}/><input type="password" style={inputStyle} placeholder="Confirm password" value={passwords.confirm} onChange={e=>setPasswords(p=>({...p,confirm:e.target.value}))}/><button onClick={changePassword} style={{padding:10,background:C.gold,color:C.dark,border:"none",borderRadius:7,fontWeight:900,cursor:"pointer"}}>Update Password</button></div>{passwordMsg&&<div style={{marginTop:10,padding:10,borderRadius:8,background:passwordMsg.includes("success")?C.greenBg:"#fff7ed",color:passwordMsg.includes("success")?C.green:C.amber,fontWeight:700}}>{passwordMsg}</div>}</div>
-      <div style={{background:C.white,border:`1px solid ${C.gray200}`,borderRadius:12,padding:24}}><SectionTitle>System & Information</SectionTitle><div style={{display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:12,fontSize:13,color:C.gray600}}><div><b style={{color:C.dark}}>About ARSKEIL</b><div style={{marginTop:4}}>AI-Driven NOI Integration Platform for bank-wise document processing and NOI lifecycle management.</div></div><div><b style={{color:C.dark}}>Account security</b><div style={{marginTop:4}}>Your role, branch and account status are controlled through the production authentication system.</div></div><div><b style={{color:C.dark}}>Terms</b><div style={{marginTop:4}}>Use the platform only for authorized loan/document processing.</div></div><div><b style={{color:C.dark}}>Privacy</b><div style={{marginTop:4}}>Case and document information should be handled according to your organization's privacy and retention policies.</div></div></div></div>
+      <div style={{background:C.white,border:`1px solid ${C.gray200}`,borderRadius:12,padding:24}}><SectionTitle>System, Privacy & Help</SectionTitle><div style={{display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:16,fontSize:13,color:C.gray600,lineHeight:1.65}}><div><b style={{color:C.dark}}>About ARSKEIL</b><div style={{marginTop:4}}>AI-Driven NOI Integration Platform for organising loan cases, uploaded documents, challan information, NOI-related records and case progress in one workflow.</div></div><div><b style={{color:C.dark}}>Account and permissions</b><div style={{marginTop:4}}>Screens and actions depend on your approved role, account status, bank/branch assignment and permissions. Contact the Vendor Admin if access is missing or appears incorrect.</div></div><div><b style={{color:C.dark}}>Data confidentiality</b><div style={{marginTop:4}}>Access customer, financial, identity and property information only for assigned work. Do not share credentials, OTPs, screenshots or customer documents through unauthorised channels.</div></div><div><b style={{color:C.dark}}>Document extraction</b><div style={{marginTop:4}}>Automated OCR may misread scanned or differently formatted documents. Always compare extracted details with the original document and correct errors before saving or relying on the values.</div></div><div><b style={{color:C.dark}}>MIS and record updates</b><div style={{marginTop:4}}>Review each row before saving. Online Excel synchronisation depends on the organisation's configured connector; a successful in-app save does not by itself confirm an external spreadsheet was updated.</div></div><div><b style={{color:C.dark}}>Support and incident reporting</b><div style={{marginTop:4}}>Report login issues, unexpected data changes, failed uploads or suspected unauthorised access to the Vendor Admin. Never include passwords or OTPs in support requests.</div></div></div></div>
       {msg&&<div style={{padding:10,borderRadius:8,background:C.greenBg,color:C.green,fontWeight:700}}>{saving?"Saving…":msg}</div>}
     </div>
   </div>;
@@ -1124,6 +1143,14 @@ function Calculator() {
 }
 
 // ─── CHALLAN (generates Case ID, auto-filled from AI extraction) ───────────────
+function StableField({ label, value, onChange, placeholder, textarea = false, span }) {
+  return <div style={span ? { gridColumn: `span ${span}` } : {}}><label style={labelStyle}>{label}</label>{textarea ? <textarea style={{ ...inputStyle, height: 60, resize: "vertical" }} value={value ?? ""} onChange={onChange} placeholder={placeholder || label} /> : <input style={inputStyle} value={value ?? ""} onChange={onChange} placeholder={placeholder || label} />}</div>;
+}
+function StableRow2({ children }) { return <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>{children}</div>; }
+function StableRow3({ children }) { return <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14, marginBottom: 14 }}>{children}</div>; }
+function StableMISInput({ value, onChange, placeholder }) { return <input value={value ?? ""} placeholder={placeholder} onChange={onChange} style={{ ...inputStyle, minWidth: 110 }} />; }
+function StableMISSelect({ value, onChange, options = [] }) { return <select value={value ?? ""} onChange={onChange} style={{ ...inputStyle, minWidth: 110 }}><option value="">—</option>{options.map(o => <option key={o} value={o}>{o}</option>)}</select>; }
+
 function Challan({ session, activeCaseData, mergeActiveCaseData, setActiveCaseData }) {
   const ai = activeCaseData || {};
   const owners = ai.owners || [];
@@ -1260,13 +1287,6 @@ function Challan({ session, activeCaseData, mergeActiveCaseData, setActiveCaseDa
 
   const copyId = () => { const t = generatedCase?.caseId; if (!t) return; try { navigator.clipboard.writeText(t); } catch { const el = document.createElement("input"); el.value = t; document.body.appendChild(el); el.select(); document.execCommand("copy"); document.body.removeChild(el); } alert(`Copied: ${t}`); };
 
-  const F = ({ label, fkey, placeholder, span }) => (
-    <div style={span ? { gridColumn: `span ${span}` } : {}}>
-      <label style={labelStyle}>{label}</label>
-      <input style={inputStyle} value={form[fkey]} onChange={set(fkey)} placeholder={placeholder || label} />
-    </div>
-  );
-
   if (generatedCase) return (
     <div>
       <h2 style={{ fontWeight: 800, fontSize: 22, color: C.dark, marginBottom: 24 }}>Challan</h2>
@@ -1312,12 +1332,12 @@ function Challan({ session, activeCaseData, mergeActiveCaseData, setActiveCaseDa
       <div style={{ background: C.white, borderRadius: 12, border: `1px solid ${C.gray200}`, padding: 32, maxWidth: 860 }}>
         <SectionTitle>Challan Details</SectionTitle>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginBottom: 16 }}>
-          <F label="Loan File / Application No." fkey="loanFileNumber" />
-          <F label="District" fkey="district" />
-          <F label="Taluka" fkey="taluka" />
-          <F label="Village / Location" fkey="village" />
-          <F label="Loan Amount (₹) *" fkey="loanAmount" placeholder="Enter loan amount" />
-          <F label="Rate of Interest (ROI)" fkey="roi" />
+          <StableField label="Loan File / Application No." value={form['loanFileNumber']} onChange={set('loanFileNumber')} />
+          <StableField label="District" value={form['district']} onChange={set('district')} />
+          <StableField label="Taluka" value={form['taluka']} onChange={set('taluka')} />
+          <StableField label="Village / Location" value={form['village']} onChange={set('village')} />
+          <StableField label="Loan Amount (₹) *" value={form['loanAmount']} onChange={set('loanAmount')} placeholder="Enter loan amount" />
+          <StableField label="Rate of Interest (ROI)" value={form['roi']} onChange={set('roi')} />
         </div>
         <div style={{ background: C.gray100, borderRadius: 8, padding: 16, marginBottom: 16 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: C.gray500, marginBottom: 10, textTransform: "uppercase" }}>Auto Calculations</div>
@@ -1328,26 +1348,26 @@ function Challan({ session, activeCaseData, mergeActiveCaseData, setActiveCaseDa
           </div>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
-          <F label="Mortgagor 1 (Applicant) *" fkey="mortgagorName1" placeholder="Primary applicant name" />
-          <F label="Mortgagor 2 (Co-Applicant)" fkey="mortgagorName2" placeholder="Co-applicant (optional)" />
+          <StableField label="Mortgagor 1 (Applicant) *" value={form['mortgagorName1']} onChange={set('mortgagorName1')} placeholder="Primary applicant name" />
+          <StableField label="Mortgagor 2 (Co-Applicant)" value={form['mortgagorName2']} onChange={set('mortgagorName2')} placeholder="Co-applicant (optional)" />
         </div>
-        <div style={{ marginBottom: 16 }}><F label="Bank Name *" fkey="bankName" placeholder="Bank name" /></div>
+        <div style={{ marginBottom: 16 }}><StableField label="Bank Name *" value={form['bankName']} onChange={set('bankName')} placeholder="Bank name" /></div>
         <div style={{ marginBottom: 16 }}>
           <label style={labelStyle}>Property Address (Standard Format — Editable) *</label>
           <textarea style={{ ...inputStyle, height: 70, resize: "vertical" }} value={form.addressFormatted} onChange={set("addressFormatted")} placeholder="Flat/Unit No, Floor, Bldg Name, Landmark, Village, Taluka, District — PIN" />
           <div style={{ fontSize: 11, color: C.gray500, marginTop: 4 }}>Format: FLAT NO. X, FLOOR, BLDG NAME, LANDMARK, VILLAGE, TALUKA, DISTRICT, PIN - XXXXXX</div>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
-          <F label="Address from Sanction Letter" fkey="addressSL" />
-          <F label="Address from Index II (cleaned)" fkey="addressIndex2" />
+          <StableField label="Address from Sanction Letter" value={form['addressSL']} onChange={set('addressSL')} />
+          <StableField label="Address from Index II (cleaned)" value={form['addressIndex2']} onChange={set('addressIndex2')} />
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginBottom: 16 }}>
-          <F label="SRO Name" fkey="sroName" />
-          <F label="Document No." fkey="documentNo" />
-          <F label="Pincode" fkey="pincode" placeholder="6-digit pincode" />
+          <StableField label="SRO Name" value={form['sroName']} onChange={set('sroName')} />
+          <StableField label="Document No." value={form['documentNo']} onChange={set('documentNo')} />
+          <StableField label="Pincode" value={form['pincode']} onChange={set('pincode')} placeholder="6-digit pincode" />
         </div>
         <div style={{ marginBottom: 24 }}>
-          <F label="Area Constructed" fkey="areaConstructed" placeholder="e.g. 35.97 SQ.MT." />
+          <StableField label="Area Constructed" value={form['areaConstructed']} onChange={set('areaConstructed')} placeholder="e.g. 35.97 SQ.MT." />
         </div>
         <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 12 }}>
           <div style={{ fontSize: 12, color: C.gray500 }}>Generates: <strong style={{ color: C.gold }}>ARK-{new Date().getFullYear()}-XXXXXX</strong></div>
@@ -1423,18 +1443,6 @@ function NOI({ session, activeCaseData, mergeActiveCaseData }) {
     setForm(buildForm(ai, ch));
   };
 
-  const Row2 = ({ children }) => <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>{children}</div>;
-  const Row3 = ({ children }) => <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14, marginBottom: 14 }}>{children}</div>;
-  const F = ({ label, fkey, placeholder, textarea }) => (
-    <div>
-      <label style={labelStyle}>{label}</label>
-      {textarea
-        ? <textarea style={{ ...inputStyle, height: 60, resize: "vertical" }} value={form[fkey]} onChange={set(fkey)} placeholder={placeholder || label} />
-        : <input style={inputStyle} value={form[fkey]} onChange={set(fkey)} placeholder={placeholder || label} />
-      }
-    </div>
-  );
-
   const saveNOI = () => {
     const targetId = selectedCase?.id || DB.get("cases").find(c => c.caseId === activeCaseData?.caseId)?.id;
     if (targetId) {
@@ -1477,46 +1485,46 @@ function NOI({ session, activeCaseData, mergeActiveCaseData }) {
       {/* NOI Form — always visible */}
       <div style={{ background: C.white, borderRadius: 12, border: `1px solid ${C.gray200}`, padding: 32, maxWidth: 900 }}>
         <SectionTitle>Property & Loan Details</SectionTitle>
-        <Row3><F label="Village" fkey="village" /><F label="Taluka" fkey="taluka" /><F label="District" fkey="district" /></Row3>
+        <StableRow3><StableField label="Village" value={form['village']} onChange={set('village')} /><StableField label="Taluka" value={form['taluka']} onChange={set('taluka')} /><StableField label="District" value={form['district']} onChange={set('district')} /></StableRow3>
         <div style={{ marginBottom: 14 }}>
           <label style={labelStyle}>Property Address (Standard Format — Editable)</label>
           <textarea style={{ ...inputStyle, height: 60, resize: "vertical" }} value={form.addressFormatted} onChange={set("addressFormatted")} placeholder="Flat/Unit No, Floor, Bldg Name, Landmark, Village, Taluka, District, PIN" />
         </div>
-        <Row2><F label="Address from SL" fkey="addressSL" /><F label="Address from Index II" fkey="addressIndex2" /></Row2>
-        <Row3>
-          <F label="Loan Amount (₹)" fkey="loanAmount" />
-          <F label="ROI (%)" fkey="roi" placeholder="e.g. 7.95% P.A." />
-          <F label="Area Constructed" fkey="areaConstructed" />
-        </Row3>
-        <Row3>
-          <F label="Survey / Gat / CTS No." fkey="surveyCTS" />
-          <F label="SRO Name" fkey="sroName" />
-          <F label="Document No." fkey="documentNo" />
-        </Row3>
-        <Row3>
-          <F label="Bank Name" fkey="bankName" />
-          <F label="Application / Loan File No." fkey="applicationNo" />
-          <F label="Pincode" fkey="m1Pincode" />
-        </Row3>
+        <StableRow2><StableField label="Address from SL" value={form['addressSL']} onChange={set('addressSL')} /><StableField label="Address from Index II" value={form['addressIndex2']} onChange={set('addressIndex2')} /></StableRow2>
+        <StableRow3>
+          <StableField label="Loan Amount (₹)" value={form['loanAmount']} onChange={set('loanAmount')} />
+          <StableField label="ROI (%)" value={form['roi']} onChange={set('roi')} placeholder="e.g. 7.95% P.A." />
+          <StableField label="Area Constructed" value={form['areaConstructed']} onChange={set('areaConstructed')} />
+        </StableRow3>
+        <StableRow3>
+          <StableField label="Survey / Gat / CTS No." value={form['surveyCTS']} onChange={set('surveyCTS')} />
+          <StableField label="SRO Name" value={form['sroName']} onChange={set('sroName')} />
+          <StableField label="Document No." value={form['documentNo']} onChange={set('documentNo')} />
+        </StableRow3>
+        <StableRow3>
+          <StableField label="Bank Name" value={form['bankName']} onChange={set('bankName')} />
+          <StableField label="Application / Loan File No." value={form['applicationNo']} onChange={set('applicationNo')} />
+          <StableField label="Pincode" value={form['m1Pincode']} onChange={set('m1Pincode')} />
+        </StableRow3>
 
         <SectionTitle>Mortgagor Information</SectionTitle>
         {[{ p: "m1", t: "Mortgagor 1 (Applicant)" }, { p: "m2", t: "Mortgagor 2 (Co-Applicant / Owner 2)" }].map(({ p, t }) => (
           <div key={p} style={{ marginBottom: 24, background: C.gray100, borderRadius: 10, padding: 16 }}>
             <div style={{ fontWeight: 700, color: C.dark, fontSize: 14, marginBottom: 12 }}>{t}</div>
-            <Row3>
-              <F label="Name" fkey={`${p}Name`} />
-              <F label="Date of Birth" fkey={`${p}DOB`} placeholder="DD/MM/YYYY" />
-              <F label="PAN No." fkey={`${p}PAN`} placeholder="PANXXXX" />
-            </Row3>
-            <Row3>
-              <F label="Address" fkey={`${p}Address`} />
-              <F label="Village" fkey={`${p}Village`} />
-              <F label="Taluka" fkey={`${p}Taluka`} />
-            </Row3>
-            <Row2>
-              <F label="District" fkey={`${p}District`} />
-              <F label="Pincode" fkey={`${p}Pincode`} />
-            </Row2>
+            <StableRow3>
+              <StableField label="Name" value={form[`${p}Name`]} onChange={set(`${p}Name`)} />
+              <StableField label="Date of Birth" value={form[`${p}DOB`]} onChange={set(`${p}DOB`)} placeholder="DD/MM/YYYY" />
+              <StableField label="PAN No." value={form[`${p}PAN`]} onChange={set(`${p}PAN`)} placeholder="PANXXXX" />
+            </StableRow3>
+            <StableRow3>
+              <StableField label="Address" value={form[`${p}Address`]} onChange={set(`${p}Address`)} />
+              <StableField label="Village" value={form[`${p}Village`]} onChange={set(`${p}Village`)} />
+              <StableField label="Taluka" value={form[`${p}Taluka`]} onChange={set(`${p}Taluka`)} />
+            </StableRow3>
+            <StableRow2>
+              <StableField label="District" value={form[`${p}District`]} onChange={set(`${p}District`)} />
+              <StableField label="Pincode" value={form[`${p}Pincode`]} onChange={set(`${p}Pincode`)} />
+            </StableRow2>
           </div>
         ))}
 
@@ -1694,9 +1702,18 @@ Banks use DIFFERENT label names. Map them all to the same internal fields:
   EMI — "Amount of EMI", "Monthly Installment (EMI)", "EMI"
     → emiAmount
 
-  PROPERTY ADDRESS — look for:
-    "Details of the Property (for which Loan is sanctioned)", "Description of the Property", "Security", "Property"
-    → propertyAddress (full address, UPPERCASE)
+  PROPERTY / SECURITY ADDRESS — REQUIRED EXTRACTION:
+    Search the WHOLE sanction letter, not just the first page, for each of these label variants:
+    "Details of Property", "Details of the Property", "Details of Property (for which Loan is sanctioned)",
+    "Property Address", "Address of Property", "Description of Property", "Property Details",
+    "Security", "Security Address", "Security Details", "Property offered as Security",
+    "Property mortgaged", "Collateral Address", "Schedule of Property".
+    The value may begin after a colon/comma/dash, on the next line, or in a table cell. If the label is alone,
+    collect the following adjacent address lines until a new field label such as Applicant, Loan Amount,
+    ROI, Branch, Date, Customer Address, Residential Address, or Correspondence Address appears.
+    Do NOT substitute the borrower's residential/correspondence address. Preserve flat/plot, floor, wing,
+    building/society, survey/gat/CTS, village, taluka, district, state and PIN where present.
+    → propertyAddress (full mortgaged-property address, UPPERCASE; return empty only if genuinely absent).
 
   PROPERTY ADDRESS COMPONENTS — ALSO break the property address into these separate fields.
   Merge the BEST data from BOTH the Sanction Letter AND Index II (prefer Index II where it has more accurate building/flat details).
@@ -2471,18 +2488,29 @@ function MIS({ session, activeCaseData }) {
   const [rows, setRows] = useState([mkRow()]);
   const [savingId, setSavingId] = useState(null);
   useEffect(() => {
-    let alive=true;
-    (async()=>{
-      const {data,error}=await supabase.from("mis_rows").select("*").order("created_at",{ascending:true});
-      if(!alive||error)return;
-      setRows(data&&data.length?data.map(r=>mkRow(dbToMis(r))):[mkRow()]);
-    })();
-    const channel=supabase.channel("mis-realtime").on("postgres_changes",{event:"*",schema:"public",table:"mis_rows"},payload=>{
-      if(payload.eventType==="INSERT") setRows(rs=>rs.some(r=>r.id===payload.new.id)?rs:[...rs,mkRow(dbToMis(payload.new))]);
-      if(payload.eventType==="UPDATE") setRows(rs=>rs.map(r=>r.id===payload.new.id?mkRow(dbToMis(payload.new)):r));
-    }).subscribe();
-    return()=>{alive=false;supabase.removeChannel(channel);};
-  },[]);
+    let alive = true;
+    const loadRows = async () => {
+      if (DEMO_MODE || !supabase) {
+        if (alive) { const saved = DB.get("mis_rows") || []; setRows(saved.length ? saved.map(r => ({ ...mkRow(r), ...r })) : [mkRow()]); }
+        return;
+      }
+      const { data, error } = await supabase.from("app_records").select("record_id,payload").eq("table_name", "mis_rows");
+      if (!alive || error) { if (error) console.warn("MIS load failed:", error.message); return; }
+      const saved = (data || []).map(r => ({ ...(r.payload || {}), id: r.record_id }));
+      DB._cache.mis_rows = saved;
+      setRows(saved.length ? saved.map(r => ({ ...mkRow(r), ...r })) : [mkRow()]);
+    };
+    loadRows();
+    let channel;
+    if (!DEMO_MODE && supabase) {
+      channel = supabase.channel("mis-records-realtime").on("postgres_changes", { event: "*", schema: "public", table: "app_records", filter: "table_name=eq.mis_rows" }, payload => {
+        const record = payload.new?.payload ? { ...payload.new.payload, id: payload.new.record_id } : null;
+        if (!record) return;
+        setRows(rs => payload.eventType === "INSERT" ? (rs.some(r => r.id === record.id) ? rs : [...rs, { ...mkRow(record), ...record }]) : rs.map(r => r.id === record.id ? { ...mkRow(record), ...record } : r));
+      }).subscribe();
+    }
+    return () => { alive = false; if (channel) supabase.removeChannel(channel); };
+  }, []);
 
   const [exporting, setExporting] = useState(false);
   const [exportMsg, setExportMsg] = useState("");
@@ -2490,9 +2518,15 @@ function MIS({ session, activeCaseData }) {
   const saveRow = async row => {
     if(!row.srNo.trim()){setExportMsg("Enter Case ID / Sr No. before saving.");return;}
     setSavingId(row.id); setExportMsg("Saving MIS row and syncing Excel…");
-    const payload={id:row.id,...misToDb(row),case_id:row.caseId||row.srNo||"",created_by:session?.id||null,created_at:new Date().toISOString()};
-    const {error}=await supabase.from("mis_rows").upsert(payload,{onConflict:"id"});
-    if(error){setExportMsg("❌ MIS save failed: "+error.message);setSavingId(null);return;}
+    const payload = { ...row, ...misToDb(row), caseId: row.caseId || row.srNo || "", created_by: session?.id || null, created_at: new Date().toISOString() };
+    if (DEMO_MODE || !supabase) {
+      const saved = (DB.get("mis_rows") || []).filter(r => r.id !== row.id);
+      DB.set("mis_rows", [...saved, payload]);
+    } else {
+      const { error } = await supabase.from("app_records").upsert({ table_name: "mis_rows", record_id: String(row.id), payload }, { onConflict: "table_name,record_id" });
+      if (error) { setExportMsg("❌ MIS save failed: " + error.message); setSavingId(null); return; }
+      DB._cache.mis_rows = [...(DB.get("mis_rows") || []).filter(r => r.id !== row.id), payload];
+    }
     try {
       const res=await fetch("/api/mis-to-excel",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({row})});
       const data=await res.json().catch(()=>({}));
@@ -2503,8 +2537,6 @@ function MIS({ session, activeCaseData }) {
   };
   const handleExportAll = async () => { for(const row of rows.filter(r=>r.srNo||r.customerName)) await saveRow(row); };
 
-  const Inp = ({ id, fkey, placeholder }) => <input value={rows.find(r => r.id === id)?.[fkey] || ""} placeholder={placeholder} onChange={e => setField(id, fkey, e.target.value)} style={{ ...inputStyle, minWidth: 110 }} />;
-  const Sel = ({ id, fkey, opts }) => <select value={rows.find(r => r.id === id)?.[fkey] || ""} onChange={e => setField(id, fkey, e.target.value)} style={{ ...inputStyle, minWidth: 110 }}><option value="">—</option>{opts.map(o => <option key={o} value={o}>{o}</option>)}</select>;
 
   return (
     <div>
@@ -2529,36 +2561,36 @@ function MIS({ session, activeCaseData }) {
             <div style={{ marginBottom: 16 }}>
               <div style={{ fontWeight: 700, color: C.green, fontSize: 13, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 12 }}>Receipt & Document Details</div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 12 }}>
-                <div><label style={labelStyle}>Sr. No. / Case ID</label><Inp id={row.id} fkey="srNo" placeholder="Case ID" /></div>
-                <div><label style={labelStyle}>Doc Received Date</label><Inp id={row.id} fkey="docReceivedDate" placeholder="DD-MM-YYYY" /></div>
-                <div><label style={labelStyle}>FI Name</label><Inp id={row.id} fkey="fiName" placeholder="FI / Bank" /></div>
-                <div><label style={labelStyle}>Bank Name</label><Inp id={row.id} fkey="bankName" placeholder="Bank" /></div>
-                <div><label style={labelStyle}>Branch</label><Inp id={row.id} fkey="branchName" placeholder="Branch" /></div>
-                <div><label style={labelStyle}>Customer Name</label><Inp id={row.id} fkey="customerName" placeholder="Name" /></div>
-                <div><label style={labelStyle}>MOB No.</label><Inp id={row.id} fkey="mobNo" placeholder="Mobile" /></div>
-                <div><label style={labelStyle}>Loan Amt</label><Inp id={row.id} fkey="loanAmt" placeholder="Amount" /></div>
-                <div><label style={labelStyle}>0.30% Amt</label><Inp id={row.id} fkey="amt030" placeholder="Amount" /></div>
-                <div><label style={labelStyle}>0.50% Amt</label><Inp id={row.id} fkey="amt050" placeholder="Amount" /></div>
-                <div><label style={labelStyle}>DHC Amt</label><Inp id={row.id} fkey="dhcAmt" placeholder="Amount" /></div>
-                <div><label style={labelStyle}>Challan Total</label><Inp id={row.id} fkey="challanTotal" placeholder="Total" /></div>
-                <div><label style={labelStyle}>Payment Date</label><Inp id={row.id} fkey="paymentDate" placeholder="DD-MM-YYYY" /></div>
+                <div><label style={labelStyle}>Sr. No. / Case ID</label><StableMISInput value={row['srNo']} onChange={e => setField(row.id, 'srNo', e.target.value)} placeholder="Case ID" /></div>
+                <div><label style={labelStyle}>Doc Received Date</label><StableMISInput value={row['docReceivedDate']} onChange={e => setField(row.id, 'docReceivedDate', e.target.value)} placeholder="DD-MM-YYYY" /></div>
+                <div><label style={labelStyle}>FI Name</label><StableMISInput value={row['fiName']} onChange={e => setField(row.id, 'fiName', e.target.value)} placeholder="FI / Bank" /></div>
+                <div><label style={labelStyle}>Bank Name</label><StableMISInput value={row['bankName']} onChange={e => setField(row.id, 'bankName', e.target.value)} placeholder="Bank" /></div>
+                <div><label style={labelStyle}>Branch</label><StableMISInput value={row['branchName']} onChange={e => setField(row.id, 'branchName', e.target.value)} placeholder="Branch" /></div>
+                <div><label style={labelStyle}>Customer Name</label><StableMISInput value={row['customerName']} onChange={e => setField(row.id, 'customerName', e.target.value)} placeholder="Name" /></div>
+                <div><label style={labelStyle}>MOB No.</label><StableMISInput value={row['mobNo']} onChange={e => setField(row.id, 'mobNo', e.target.value)} placeholder="Mobile" /></div>
+                <div><label style={labelStyle}>Loan Amt</label><StableMISInput value={row['loanAmt']} onChange={e => setField(row.id, 'loanAmt', e.target.value)} placeholder="Amount" /></div>
+                <div><label style={labelStyle}>0.30% Amt</label><StableMISInput value={row['amt030']} onChange={e => setField(row.id, 'amt030', e.target.value)} placeholder="Amount" /></div>
+                <div><label style={labelStyle}>0.50% Amt</label><StableMISInput value={row['amt050']} onChange={e => setField(row.id, 'amt050', e.target.value)} placeholder="Amount" /></div>
+                <div><label style={labelStyle}>DHC Amt</label><StableMISInput value={row['dhcAmt']} onChange={e => setField(row.id, 'dhcAmt', e.target.value)} placeholder="Amount" /></div>
+                <div><label style={labelStyle}>Challan Total</label><StableMISInput value={row['challanTotal']} onChange={e => setField(row.id, 'challanTotal', e.target.value)} placeholder="Total" /></div>
+                <div><label style={labelStyle}>Payment Date</label><StableMISInput value={row['paymentDate']} onChange={e => setField(row.id, 'paymentDate', e.target.value)} placeholder="DD-MM-YYYY" /></div>
               </div>
             </div>
             <div>
               <div style={{ fontWeight: 700, color: C.green, fontSize: 13, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 12 }}>Payment & Submission Details</div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 12 }}>
-                <div><label style={labelStyle}>Amt Received</label><Inp id={row.id} fkey="amtReceived" placeholder="Amount" /></div>
-                <div><label style={labelStyle}>Net Fees</label><Inp id={row.id} fkey="netFees" placeholder="Net Fees" /></div>
-                <div><label style={labelStyle}>Platform Fee</label><Inp id={row.id} fkey="platformFee" placeholder="Fee" /></div>
-                <div><label style={labelStyle}>Extra Amt</label><Inp id={row.id} fkey="extraAmt" placeholder="Extra" /></div>
-                <div><label style={labelStyle}>NOI Submit Date</label><Inp id={row.id} fkey="noiSubmit" placeholder="DD-MM-YYYY" /></div>
-                <div><label style={labelStyle}>NOI Receipt Date</label><Inp id={row.id} fkey="noiReceipt" placeholder="DD-MM-YYYY" /></div>
-                <div><label style={labelStyle}>TAT (Days)</label><Inp id={row.id} fkey="tat" placeholder="TAT" /></div>
+                <div><label style={labelStyle}>Amt Received</label><StableMISInput value={row['amtReceived']} onChange={e => setField(row.id, 'amtReceived', e.target.value)} placeholder="Amount" /></div>
+                <div><label style={labelStyle}>Net Fees</label><StableMISInput value={row['netFees']} onChange={e => setField(row.id, 'netFees', e.target.value)} placeholder="Net Fees" /></div>
+                <div><label style={labelStyle}>Platform Fee</label><StableMISInput value={row['platformFee']} onChange={e => setField(row.id, 'platformFee', e.target.value)} placeholder="Fee" /></div>
+                <div><label style={labelStyle}>Extra Amt</label><StableMISInput value={row['extraAmt']} onChange={e => setField(row.id, 'extraAmt', e.target.value)} placeholder="Extra" /></div>
+                <div><label style={labelStyle}>NOI Submit Date</label><StableMISInput value={row['noiSubmit']} onChange={e => setField(row.id, 'noiSubmit', e.target.value)} placeholder="DD-MM-YYYY" /></div>
+                <div><label style={labelStyle}>NOI Receipt Date</label><StableMISInput value={row['noiReceipt']} onChange={e => setField(row.id, 'noiReceipt', e.target.value)} placeholder="DD-MM-YYYY" /></div>
+                <div><label style={labelStyle}>TAT (Days)</label><StableMISInput value={row['tat']} onChange={e => setField(row.id, 'tat', e.target.value)} placeholder="TAT" /></div>
                 <div style={{ gridColumn: "span 2" }}><label style={labelStyle}>Remarks</label><textarea value={row.remarks} onChange={e => setField(row.id, "remarks", e.target.value)} placeholder="Remarks" style={{ ...inputStyle, height: 70, resize: "vertical" }} /></div>
-                <div><label style={labelStyle}>SRO No.</label><Inp id={row.id} fkey="sroNo" placeholder="SRO No." /></div>
-                <div><label style={labelStyle}>Challan By</label><Inp id={row.id} fkey="challanBy" placeholder="Name" /></div>
-                <div><label style={labelStyle}>NOI By</label><Inp id={row.id} fkey="noiBy" placeholder="Name" /></div>
-                <div><label style={labelStyle}>FSF</label><Sel id={row.id} fkey="fsf" opts={["Yes", "No"]} /></div>
+                <div><label style={labelStyle}>SRO No.</label><StableMISInput value={row['sroNo']} onChange={e => setField(row.id, 'sroNo', e.target.value)} placeholder="SRO No." /></div>
+                <div><label style={labelStyle}>Challan By</label><StableMISInput value={row['challanBy']} onChange={e => setField(row.id, 'challanBy', e.target.value)} placeholder="Name" /></div>
+                <div><label style={labelStyle}>NOI By</label><StableMISInput value={row['noiBy']} onChange={e => setField(row.id, 'noiBy', e.target.value)} placeholder="Name" /></div>
+                <div><label style={labelStyle}>FSF</label><StableMISSelect value={row['fsf']} onChange={e => setField(row.id, 'fsf', e.target.value)} options={["Yes", "No"]} /></div>
               </div>
             </div>
           </div>

@@ -215,32 +215,72 @@ def extract_roi(text: str) -> Optional[str]:
 
 
 def extract_property_address(text: str) -> Optional[str]:
+    """Extract the mortgaged-property address from common sanction-letter labels.
+
+    Handles label-only lines, comma-separated synonym labels, and addresses that
+    continue over multiple OCR lines. It deliberately stops before borrower
+    correspondence/residential address and unrelated loan fields.
+    """
     lines = [clean_line(x) for x in text.splitlines()]
-    anchors = re.compile(
-        r"(?:details\s+of\s+(?:the\s+)?property|property\s*/\s*security(?:\s+address)?|property\s+and\s+security(?:\s+address)?|security(?:\s+address|\s+details|\s+offered)?|address\s+of\s+(?:the\s+)?property|property\s+address|property\s+(?:offered\s+as\s+security|sanctioned|details|description)|sanctioned\s+property|description\s+of\s+(?:the\s+)?property|collateral\s+address|mortgaged\s+property)", re.I)
-    stop = re.compile(r"^(?:applicant|borrower|co.?applicant|customer\s+address|residential\s+address|correspondence\s+address|present\s+address|permanent\s+address|loan|application|sanction|rate of interest|ROI|branch|bank|lender|amount|EMI|tenure|term|signature|date|contact|mobile|PAN|Aadhaar|declaration|witness)\b", re.I)
+    anchor = re.compile(
+        r"(?:details\s+of\s+(?:the\s+)?property(?:\s*\([^)]*\))?|"
+        r"property\s*/\s*security(?:\s+address)?|property\s+and\s+security(?:\s+address)?|"
+        r"security(?:\s+address|\s+details|\s+offered|\s+of\s+property)?|"
+        r"address\s+of\s+(?:the\s+)?property|property\s+address|property\s+details|"
+        r"property\s+offered\s+as\s+security|property\s+offered\s+for\s+mortgage|"
+        r"property\s+sanctioned|property\s+description|sanctioned\s+property|"
+        r"description\s+of\s+(?:the\s+)?property|collateral\s+address|mortgaged\s+property|"
+        r"schedule\s+of\s+property|मिळकतीचे वर्णन|मिळकत वर्णन|मिळकतीचा तपशील)", re.I)
+    label_only = re.compile(
+        r"^(?:(?:details\s+of\s+(?:the\s+)?property(?:\s*\([^)]*\))?)|"
+        r"property\s*/\s*security(?:\s+address)?|property\s+and\s+security(?:\s+address)?|"
+        r"security(?:\s+address|\s+details|\s+offered|\s+of\s+property)?|"
+        r"property\s+address|address\s+of\s+(?:the\s+)?property|property\s+details|"
+        r"property\s+offered\s+as\s+security|property\s+description|description\s+of\s+(?:the\s+)?property|"
+        r"collateral\s+address|mortgaged\s+property|schedule\s+of\s+property)[\s,:;|.\-]*$", re.I)
+    stop = re.compile(
+        r"^(?:applicant|name of applicant|borrower|co.?applicant|co.?borrower|customer\s+address|"
+        r"residential\s+address|correspondence\s+address|present\s+address|permanent\s+address|"
+        r"loan(?:\s+amount)?|application|sanction\s+amount|rate of interest|ROI|branch|bank|lender|"
+        r"amount|EMI|tenure|term|signature|date|contact|mobile|PAN|Aadhaar|declaration|witness|"
+        r"rate|interest|processing fee|repayment|insurance|guarantor|disbursement)\b", re.I)
+    # If a line contains several alternative labels, ignore the remaining labels
+    # in the tail and continue reading the actual address from following lines.
     for i, line in enumerate(lines):
-        m = anchors.search(line)
+        m = anchor.search(line)
         if not m:
             continue
-        pieces = []
-        tail = line[m.end():].strip(" :：=-|#")
-        if tail and not re.match(r"^(?:details|address)\s*$", tail, re.I):
-            pieces.append(tail)
-        for nxt in lines[i + 1:min(i + 5, len(lines))]:
+        tail = line[m.end():].strip(" \t:：=-|#,. ;")
+        if tail and label_only.fullmatch(tail):
+            tail = ""
+        if tail:
+            # Some templates print all three synonymous headings in one cell:
+            # "Details of Property, Property Address, Security".
+            cleaned_tail = re.sub(
+                r"\b(?:details\s+of\s+(?:the\s+)?property(?:\s*\([^)]*\))?|property\s*/\s*security(?:\s+address)?|property\s+and\s+security(?:\s+address)?|property\s+address|address\s+of\s+(?:the\s+)?property|security(?:\s+address|\s+details|\s+offered|\s+of\s+property)?)\b",
+                " ", tail, flags=re.I)
+            cleaned_tail = re.sub(r"[\s,;:|.\-]+", " ", cleaned_tail).strip()
+            tail = cleaned_tail
+        pieces = [tail] if tail and len(tail) >= 5 else []
+        for nxt in lines[i + 1:min(i + 9, len(lines))]:
             if not nxt:
                 continue
             if stop.search(nxt):
                 break
-            # Avoid swallowing table labels unrelated to property.
-            if re.match(r"^(?:loan amount|amount sanctioned|total amount|interest rate|ROI|branch name|bank name|application no|application number)\b", nxt, re.I):
+            if label_only.fullmatch(nxt) or re.fullmatch(r"(?:(?:details\s+of\s+(?:the\s+)?property|property\s+address|security|security\s+address)\s*[,;:|.\-]*\s*){2,}", nxt, re.I):
+                continue
+            # A different, labelled property field is an address continuation only
+            # when it is a component such as village/survey/flat; unrelated labels stop.
+            if re.match(r"^(?:application\s*(?:no|number)|loan\s+(?:amount|account|no)|rate\s+of\s+interest|branch\s*(?:name)?|bank\s*(?:name)?|sanction\s+date|customer\s+address|correspondence\s+address|residential\s+address)\b", nxt, re.I):
                 break
             pieces.append(nxt)
-            if len(" ".join(pieces)) >= 240:
+            if len(" ".join(pieces)) >= 320:
                 break
-        value = re.sub(r"\s+", " ", " ".join(pieces)).strip(" :;,-")
-        if len(value) >= 8 and not looks_like_other_label(value):
-            return value[:240]
+        value = re.sub(r"\s+", " ", " ".join(pieces)).strip(" :;,-|.")
+        value = re.sub(r"\b(?:details\s+of\s+(?:the\s+)?property|property\s+address|security\s+address|security)\b", " ", value, flags=re.I)
+        value = re.sub(r"\s+", " ", value).strip(" :;,-|.")
+        if len(value) >= 8 and not re.match(r"^(?:applicant|borrower|customer|residential|correspondence)\b", value, re.I):
+            return value[:320]
     return None
 
 
